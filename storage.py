@@ -1,17 +1,20 @@
-"""SQLite + JSON-on-disk storage for Strava data.
+"""SQLite + JSON-on-disk storage for Strava data — multi-user edition.
 
 Layout:
-    data/rides.db            SQLite with activity summary + detail.
-    data/streams/{id}.json   Per-ride time-series (one file per activity).
+    data/rides.db                          SQLite (users, activities, sessions, sync_state)
+    data/streams/{user_id}/{aid}.json      Per-user per-ride time-series
 
-Schema is intentionally permissive: we store the full JSON for each ride alongside
-extracted scalar columns we'll query often. New fields don't require migrations —
-just read from the `raw` column.
+All activity reads/writes take a user_id. The legacy single-user code path
+(no user_id arg) is no longer supported — run `migrate_to_multiuser.py`
+once to upgrade an existing database.
 """
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -22,25 +25,45 @@ DB_PATH = DATA_DIR / "rides.db"
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    strava_athlete_id    INTEGER UNIQUE NOT NULL,
+    email                TEXT,
+    first_name           TEXT,
+    last_name            TEXT,
+    profile_image_url    TEXT,
+    weight_kg            REAL,
+    refresh_token        TEXT NOT NULL,
+    access_token         TEXT,
+    access_token_expires INTEGER,           -- unix seconds
+    last_sync_at         TEXT,              -- ISO8601
+    backfill_state       TEXT NOT NULL DEFAULT 'pending',   -- pending|running|done|failed
+    backfill_progress    INTEGER NOT NULL DEFAULT 0,
+    backfill_total       INTEGER NOT NULL DEFAULT 0,
+    created_at           TEXT NOT NULL,
+    deauthorized_at      TEXT
+);
+
 CREATE TABLE IF NOT EXISTS activities (
-    id                   INTEGER PRIMARY KEY,
+    user_id              INTEGER NOT NULL,
+    id                   INTEGER NOT NULL,
     name                 TEXT,
     sport_type           TEXT,
     type                 TEXT,
-    start_date           TEXT,        -- ISO8601 UTC
+    start_date           TEXT,
     start_date_local     TEXT,
     timezone             TEXT,
-    distance             REAL,        -- meters
-    moving_time          INTEGER,     -- seconds
+    distance             REAL,
+    moving_time          INTEGER,
     elapsed_time         INTEGER,
-    total_elevation_gain REAL,        -- meters
-    average_speed        REAL,        -- m/s
+    total_elevation_gain REAL,
+    average_speed        REAL,
     max_speed            REAL,
     average_watts        REAL,
     max_watts            INTEGER,
-    weighted_average_watts INTEGER,   -- NP (detail-only)
+    weighted_average_watts INTEGER,
     kilojoules           REAL,
-    device_watts         INTEGER,     -- 0/1: true power meter
+    device_watts         INTEGER,
     has_heartrate        INTEGER,
     average_heartrate    REAL,
     max_heartrate        REAL,
@@ -52,19 +75,37 @@ CREATE TABLE IF NOT EXISTS activities (
     gear_id              TEXT,
     polyline             TEXT,
     summary_polyline     TEXT,
-    detail_fetched_at    TEXT,        -- ISO8601; NULL means only summary so far
-    streams_fetched_at   TEXT,        -- ISO8601; NULL means streams not pulled
-    raw                  TEXT NOT NULL  -- full JSON (summary or detail)
+    detail_fetched_at    TEXT,
+    streams_fetched_at   TEXT,
+    raw                  TEXT NOT NULL,
+    PRIMARY KEY (user_id, id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS idx_activities_start_date ON activities(start_date);
-CREATE INDEX IF NOT EXISTS idx_activities_sport_type ON activities(sport_type);
+CREATE INDEX IF NOT EXISTS idx_activities_user_start ON activities(user_id, start_date DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_user_sport ON activities(user_id, sport_type);
 
 CREATE TABLE IF NOT EXISTS sync_state (
-    key   TEXT PRIMARY KEY,
-    value TEXT
+    user_id              INTEGER NOT NULL,
+    key                  TEXT NOT NULL,
+    value                TEXT,
+    PRIMARY KEY (user_id, key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+    sid                  TEXT PRIMARY KEY,
+    user_id              INTEGER NOT NULL,
+    expires_at           INTEGER NOT NULL,         -- unix seconds
+    created_at           INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 """
 
+
+# =====================================================================
+#                          CONNECTION
+# =====================================================================
 
 def _ensure_dirs() -> None:
     DATA_DIR.mkdir(exist_ok=True)
@@ -76,8 +117,186 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
+
+def streams_dir_for(user_id: int) -> Path:
+    _ensure_dirs()
+    d = STREAMS_DIR / str(user_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# =====================================================================
+#                            USERS
+# =====================================================================
+
+@dataclass
+class User:
+    id: int
+    strava_athlete_id: int
+    email: str | None
+    first_name: str | None
+    last_name: str | None
+    profile_image_url: str | None
+    weight_kg: float | None
+    refresh_token: str
+    access_token: str | None
+    access_token_expires: int | None
+    last_sync_at: str | None
+    backfill_state: str
+    backfill_progress: int
+    backfill_total: int
+    created_at: str
+    deauthorized_at: str | None
+
+    @property
+    def display_name(self) -> str:
+        parts = [p for p in (self.first_name, self.last_name) if p]
+        return " ".join(parts) or f"Athlete {self.strava_athlete_id}"
+
+
+def _user_from_row(row: sqlite3.Row | None) -> User | None:
+    if row is None:
+        return None
+    return User(**{k: row[k] for k in row.keys()})
+
+
+def get_user(conn: sqlite3.Connection, user_id: int) -> User | None:
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _user_from_row(row)
+
+
+def get_user_by_athlete_id(conn: sqlite3.Connection, athlete_id: int) -> User | None:
+    row = conn.execute(
+        "SELECT * FROM users WHERE strava_athlete_id = ?", (athlete_id,)
+    ).fetchone()
+    return _user_from_row(row)
+
+
+def upsert_user_from_oauth(
+    conn: sqlite3.Connection,
+    athlete: dict[str, Any],
+    refresh_token: str,
+    access_token: str,
+    access_token_expires: int,
+) -> User:
+    """Insert or update a user from a Strava /oauth/token response.
+
+    Strava returns the athlete payload alongside the tokens. We pull just
+    the identifying / display fields.
+    """
+    athlete_id = int(athlete["id"])
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    existing = get_user_by_athlete_id(conn, athlete_id)
+    if existing:
+        conn.execute(
+            "UPDATE users SET refresh_token = ?, access_token = ?, "
+            "access_token_expires = ?, first_name = ?, last_name = ?, "
+            "profile_image_url = ?, weight_kg = ?, deauthorized_at = NULL "
+            "WHERE id = ?",
+            (refresh_token, access_token, access_token_expires,
+             athlete.get("firstname"), athlete.get("lastname"),
+             athlete.get("profile") or athlete.get("profile_medium"),
+             athlete.get("weight"), existing.id),
+        )
+        conn.commit()
+        return get_user(conn, existing.id)  # type: ignore[return-value]
+    cur = conn.execute(
+        "INSERT INTO users (strava_athlete_id, email, first_name, last_name, "
+        "profile_image_url, weight_kg, refresh_token, access_token, "
+        "access_token_expires, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (athlete_id, athlete.get("email"),
+         athlete.get("firstname"), athlete.get("lastname"),
+         athlete.get("profile") or athlete.get("profile_medium"),
+         athlete.get("weight"), refresh_token, access_token,
+         access_token_expires, now_iso),
+    )
+    conn.commit()
+    return get_user(conn, int(cur.lastrowid))  # type: ignore[return-value]
+
+
+def update_user_tokens(
+    conn: sqlite3.Connection, user_id: int,
+    refresh_token: str, access_token: str, access_token_expires: int,
+) -> None:
+    conn.execute(
+        "UPDATE users SET refresh_token = ?, access_token = ?, "
+        "access_token_expires = ? WHERE id = ?",
+        (refresh_token, access_token, access_token_expires, user_id),
+    )
+    conn.commit()
+
+
+def update_backfill_state(
+    conn: sqlite3.Connection, user_id: int,
+    state: str | None = None,
+    progress: int | None = None, total: int | None = None,
+) -> None:
+    fields, vals = [], []
+    if state is not None:
+        fields.append("backfill_state = ?"); vals.append(state)
+    if progress is not None:
+        fields.append("backfill_progress = ?"); vals.append(progress)
+    if total is not None:
+        fields.append("backfill_total = ?"); vals.append(total)
+    if not fields:
+        return
+    vals.append(user_id)
+    conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", vals)
+    conn.commit()
+
+
+def set_user_weight(conn: sqlite3.Connection, user_id: int, weight_kg: float) -> None:
+    conn.execute("UPDATE users SET weight_kg = ? WHERE id = ?", (weight_kg, user_id))
+    conn.commit()
+
+
+# =====================================================================
+#                            SESSIONS
+# =====================================================================
+
+SESSION_LIFETIME_S = 60 * 60 * 24 * 30  # 30 days
+
+
+def create_session(conn: sqlite3.Connection, user_id: int) -> str:
+    sid = secrets.token_urlsafe(32)
+    now = int(time.time())
+    conn.execute(
+        "INSERT INTO sessions (sid, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
+        (sid, user_id, now + SESSION_LIFETIME_S, now),
+    )
+    conn.commit()
+    return sid
+
+
+def lookup_session(conn: sqlite3.Connection, sid: str) -> User | None:
+    if not sid:
+        return None
+    now = int(time.time())
+    row = conn.execute(
+        "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
+        "WHERE s.sid = ? AND s.expires_at > ?",
+        (sid, now),
+    ).fetchone()
+    return _user_from_row(row)
+
+
+def destroy_session(conn: sqlite3.Connection, sid: str) -> None:
+    conn.execute("DELETE FROM sessions WHERE sid = ?", (sid,))
+    conn.commit()
+
+
+def cleanup_expired_sessions(conn: sqlite3.Connection) -> int:
+    cur = conn.execute("DELETE FROM sessions WHERE expires_at < ?", (int(time.time()),))
+    conn.commit()
+    return cur.rowcount
+
+
+# =====================================================================
+#                          ACTIVITIES
+# =====================================================================
 
 SUMMARY_COLS = (
     "id name sport_type type start_date start_date_local timezone distance "
@@ -100,77 +319,98 @@ def _extract(d: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def upsert_summary(conn: sqlite3.Connection, summary: dict[str, Any]) -> None:
+def upsert_summary(conn: sqlite3.Connection, user_id: int, summary: dict[str, Any]) -> None:
     row = _extract(summary)
     row["raw"] = json.dumps(summary)
+    row["user_id"] = user_id
     cols = list(row.keys())
     placeholders = ",".join(f":{c}" for c in cols)
-    updates = ",".join(f"{c}=excluded.{c}" for c in cols if c != "id")
+    updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in ("id", "user_id"))
     conn.execute(
         f"INSERT INTO activities ({','.join(cols)}) VALUES ({placeholders}) "
-        f"ON CONFLICT(id) DO UPDATE SET {updates}",
+        f"ON CONFLICT(user_id, id) DO UPDATE SET {updates}",
         row,
     )
 
 
-def upsert_detail(conn: sqlite3.Connection, detail: dict[str, Any], now_iso: str) -> None:
+def upsert_detail(
+    conn: sqlite3.Connection, user_id: int, detail: dict[str, Any], now_iso: str
+) -> None:
     row = _extract(detail)
     row["raw"] = json.dumps(detail)
     row["detail_fetched_at"] = now_iso
+    row["user_id"] = user_id
     cols = list(row.keys())
     placeholders = ",".join(f":{c}" for c in cols)
-    # On conflict we merge: detail fields always win.
-    updates = ",".join(f"{c}=excluded.{c}" for c in cols if c != "id")
+    updates = ",".join(f"{c}=excluded.{c}" for c in cols if c not in ("id", "user_id"))
     conn.execute(
         f"INSERT INTO activities ({','.join(cols)}) VALUES ({placeholders}) "
-        f"ON CONFLICT(id) DO UPDATE SET {updates}",
+        f"ON CONFLICT(user_id, id) DO UPDATE SET {updates}",
         row,
     )
 
 
-def mark_streams_fetched(conn: sqlite3.Connection, activity_id: int, now_iso: str) -> None:
+def mark_streams_fetched(
+    conn: sqlite3.Connection, user_id: int, activity_id: int, now_iso: str,
+) -> None:
     conn.execute(
-        "UPDATE activities SET streams_fetched_at = ? WHERE id = ?",
-        (now_iso, activity_id),
+        "UPDATE activities SET streams_fetched_at = ? WHERE user_id = ? AND id = ?",
+        (now_iso, user_id, activity_id),
     )
 
 
-def save_streams(activity_id: int, streams_obj: dict[str, Any]) -> Path:
-    _ensure_dirs()
-    p = STREAMS_DIR / f"{activity_id}.json"
+def save_streams(user_id: int, activity_id: int, streams_obj: dict[str, Any]) -> Path:
+    p = streams_dir_for(user_id) / f"{activity_id}.json"
     p.write_text(json.dumps(streams_obj))
     return p
 
 
-def known_ids(conn: sqlite3.Connection) -> set[int]:
-    return {r[0] for r in conn.execute("SELECT id FROM activities")}
+def streams_path(user_id: int, activity_id: int) -> Path:
+    return STREAMS_DIR / str(user_id) / f"{activity_id}.json"
+
+
+def known_ids(conn: sqlite3.Connection, user_id: int) -> set[int]:
+    return {r[0] for r in conn.execute(
+        "SELECT id FROM activities WHERE user_id = ?", (user_id,))}
 
 
 def ids_missing_streams(
-    conn: sqlite3.Connection, sport_types: Iterable[str] | None = None
+    conn: sqlite3.Connection, user_id: int,
+    sport_types: Iterable[str] | None = None,
 ) -> list[int]:
     if sport_types:
-        marks = ",".join("?" * len(list(sport_types)))
+        sport_list = list(sport_types)
+        marks = ",".join("?" * len(sport_list))
         rows = conn.execute(
-            f"SELECT id FROM activities WHERE streams_fetched_at IS NULL "
+            f"SELECT id FROM activities WHERE user_id = ? AND streams_fetched_at IS NULL "
             f"AND sport_type IN ({marks}) ORDER BY start_date DESC",
-            tuple(sport_types),
+            (user_id, *sport_list),
         )
     else:
         rows = conn.execute(
-            "SELECT id FROM activities WHERE streams_fetched_at IS NULL ORDER BY start_date DESC"
+            "SELECT id FROM activities WHERE user_id = ? AND streams_fetched_at IS NULL "
+            "ORDER BY start_date DESC",
+            (user_id,),
         )
     return [r[0] for r in rows]
 
 
-def get_state(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM sync_state WHERE key = ?", (key,)).fetchone()
+# =====================================================================
+#                         SYNC STATE (per user)
+# =====================================================================
+
+def get_state(conn: sqlite3.Connection, user_id: int, key: str) -> str | None:
+    row = conn.execute(
+        "SELECT value FROM sync_state WHERE user_id = ? AND key = ?",
+        (user_id, key),
+    ).fetchone()
     return row[0] if row else None
 
 
-def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
+def set_state(conn: sqlite3.Connection, user_id: int, key: str, value: str) -> None:
     conn.execute(
-        "INSERT INTO sync_state(key, value) VALUES(?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
+        "INSERT INTO sync_state(user_id, key, value) VALUES(?, ?, ?) "
+        "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value",
+        (user_id, key, value),
     )
+    conn.commit()

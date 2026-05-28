@@ -41,9 +41,14 @@ DEFAULT_DURATIONS = [
 
 # ----- Loading ------------------------------------------------------------
 
-def load_rides(only_cycling: bool = True, only_with_power: bool = False) -> pd.DataFrame:
+def load_rides(user_id: int = 1, only_cycling: bool = True,
+                only_with_power: bool = False) -> pd.DataFrame:
     conn = storage.connect()
-    df = pd.read_sql("SELECT * FROM activities", conn, parse_dates=["start_date", "start_date_local"])
+    df = pd.read_sql(
+        "SELECT * FROM activities WHERE user_id = ?", conn,
+        params=(user_id,),
+        parse_dates=["start_date", "start_date_local"],
+    )
     conn.close()
     if only_cycling:
         df = df[df["sport_type"].isin(CYCLING_SPORT_TYPES)].copy()
@@ -53,15 +58,17 @@ def load_rides(only_cycling: bool = True, only_with_power: bool = False) -> pd.D
     return df
 
 
-def load_streams(activity_id: int) -> dict[str, np.ndarray]:
+def load_streams(user_id: int, activity_id: int) -> dict[str, np.ndarray]:
     """Return per-key numpy arrays. Returns empty dict if no streams on disk."""
-    p = STREAMS_DIR / f"{activity_id}.json"
+    p = STREAMS_DIR / str(user_id) / f"{activity_id}.json"
     if not p.exists():
-        return {}
+        # Backwards-compat: legacy single-user path
+        legacy = STREAMS_DIR / f"{activity_id}.json"
+        if not legacy.exists():
+            return {}
+        p = legacy
     raw = json.loads(p.read_text())
     out: dict[str, np.ndarray] = {}
-    # Strava streams come keyed by type when key_by_type=true. Each value:
-    #   {"type": "watts", "data": [...], "series_type": "...", "original_size": N, "resolution": "high"}
     for key, payload in raw.items():
         data = payload.get("data")
         if data is None:
@@ -70,13 +77,14 @@ def load_streams(activity_id: int) -> dict[str, np.ndarray]:
     return out
 
 
-def list_rides_with_streams(only_with_power: bool = False) -> list[int]:
+def list_rides_with_streams(user_id: int = 1,
+                              only_with_power: bool = False) -> list[int]:
     conn = storage.connect()
-    q = "SELECT id FROM activities WHERE streams_fetched_at IS NOT NULL"
+    q = "SELECT id FROM activities WHERE user_id = ? AND streams_fetched_at IS NOT NULL"
     if only_with_power:
         q += " AND device_watts = 1"
     q += " ORDER BY start_date"
-    ids = [r[0] for r in conn.execute(q)]
+    ids = [r[0] for r in conn.execute(q, (user_id,))]
     conn.close()
     return ids
 
@@ -105,6 +113,7 @@ def best_mean_max(power: np.ndarray, durations: Iterable[int]) -> dict[int, floa
 
 
 def power_duration_curve(
+    user_id: int = 1,
     activity_ids: Iterable[int] | None = None,
     durations: Iterable[int] = DEFAULT_DURATIONS,
 ) -> pd.DataFrame:
@@ -113,11 +122,11 @@ def power_duration_curve(
     Returns a DataFrame indexed by duration (seconds), columns: ['watts', 'activity_id'].
     """
     if activity_ids is None:
-        activity_ids = list_rides_with_streams(only_with_power=True)
+        activity_ids = list_rides_with_streams(user_id, only_with_power=True)
     durations = list(durations)
     best = {d: (float("-inf"), None) for d in durations}
     for aid in activity_ids:
-        streams = load_streams(aid)
+        streams = load_streams(user_id, aid)
         watts = streams.get("watts")
         if watts is None or watts.size == 0:
             continue
@@ -163,7 +172,7 @@ def tss(np_watts: float, ftp: float, moving_time_s: float) -> float:
     return (moving_time_s * np_watts * intensity_factor) / (ftp * 3600.0) * 100.0
 
 
-def add_tss_columns(df: pd.DataFrame, ftp: float) -> pd.DataFrame:
+def add_tss_columns(df: pd.DataFrame, ftp: float, user_id: int = 1) -> pd.DataFrame:
     """Add NP/IF/TSS columns. Prefers weighted_average_watts (from detail) when present;
     falls back to NP computed from streams; otherwise NaN."""
     df = df.copy()
@@ -171,7 +180,7 @@ def add_tss_columns(df: pd.DataFrame, ftp: float) -> pd.DataFrame:
     for _, r in df.iterrows():
         np_w = r.get("weighted_average_watts")
         if pd.isna(np_w) or np_w is None:
-            streams = load_streams(int(r["id"]))
+            streams = load_streams(user_id, int(r["id"]))
             w = streams.get("watts")
             np_w = normalized_power(w) if w is not None else float("nan")
         nps.append(float(np_w) if not pd.isna(np_w) else float("nan"))
@@ -214,12 +223,12 @@ def acute_chronic_ratio(weekly: pd.DataFrame) -> pd.DataFrame:
 
 # ----- HR decoupling ------------------------------------------------------
 
-def hr_decoupling(activity_id: int) -> dict[str, float]:
+def hr_decoupling(activity_id: int, user_id: int = 1) -> dict[str, float]:
     """Pa:Hr ratio first half vs second half. >5% decoupling = aerobic stress.
 
     Returns {"first_half_ratio": x, "second_half_ratio": y, "decoupling_pct": z}.
     """
-    streams = load_streams(activity_id)
+    streams = load_streams(user_id, activity_id)
     w, hr, moving = streams.get("watts"), streams.get("heartrate"), streams.get("moving")
     if w is None or hr is None or w.size < 600:
         return {}

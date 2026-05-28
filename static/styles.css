@@ -74,6 +74,72 @@ a:hover { text-decoration: underline; }
 .nav-links a:hover { background: rgba(255,255,255,.06); color: white; text-decoration: none; }
 .nav-links a.active { background: var(--orange); color: white; }
 
+/* User chunk on the right side of the nav */
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: #c9c5be;
+  font-size: 13px;
+}
+.nav-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.nav-name { color: white; font-weight: 500; }
+.link-btn {
+  font: inherit;
+  background: transparent;
+  border: none;
+  color: #c9c5be;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.link-btn:hover { background: rgba(255,255,255,.08); color: white; }
+
+/* Login page */
+.login-wrap {
+  min-height: calc(100vh - 130px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  padding: 36px 32px;
+  max-width: 440px;
+  width: 100%;
+  text-align: center;
+}
+.login-mark {
+  font-size: 36px;
+  color: var(--orange);
+  margin-bottom: 6px;
+  line-height: 1;
+}
+.login-card h1 { margin: 4px 0 12px; font-size: 22px; }
+.login-form { margin-top: 18px; }
+.btn-strava {
+  background: var(--orange);
+  border: none;
+  color: white;
+  padding: 12px 28px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.btn-strava:hover { background: #e44402; }
+
 /* ---------- Main ---------- */
 .main {
   max-width: 1400px;

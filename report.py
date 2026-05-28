@@ -76,12 +76,13 @@ def plot_weekly(weekly: pd.DataFrame, out: Path) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument("--user-id", type=int, default=1)
     p.add_argument("--since", help="ISO date filter (start_date >= this)")
     p.add_argument("--ftp", type=float, help="Override FTP estimate (W)")
     args = p.parse_args()
     REPORTS_DIR.mkdir(exist_ok=True)
 
-    df = analysis.load_rides(only_cycling=True)
+    df = analysis.load_rides(user_id=args.user_id, only_cycling=True)
     if args.since:
         df = df[df["start_date"] >= pd.Timestamp(args.since, tz="UTC")]
     n_total = len(df)
@@ -89,9 +90,15 @@ def main() -> None:
     n_streams = int(df["streams_fetched_at"].notna().sum())
 
     power_ids = df[df["device_watts"] == 1]["id"].astype(int).tolist()
-    power_ids_with_streams = [aid for aid in power_ids if (analysis.STREAMS_DIR / f"{aid}.json").exists()]
+    streams_root = analysis.STREAMS_DIR / str(args.user_id)
+    power_ids_with_streams = [
+        aid for aid in power_ids
+        if (streams_root / f"{aid}.json").exists()
+        or (analysis.STREAMS_DIR / f"{aid}.json").exists()  # legacy fallback
+    ]
 
-    pdc = analysis.power_duration_curve(power_ids_with_streams) if power_ids_with_streams else pd.DataFrame()
+    pdc = (analysis.power_duration_curve(args.user_id, power_ids_with_streams)
+           if power_ids_with_streams else pd.DataFrame())
     ftp = args.ftp if args.ftp else (analysis.estimate_ftp(pdc) if not pdc.empty else float("nan"))
 
     if not pdc.empty:
@@ -99,7 +106,7 @@ def main() -> None:
 
     df_for_tss = df.copy()
     if not np.isnan(ftp) and n_streams > 0:
-        df_for_tss = analysis.add_tss_columns(df_for_tss, ftp=ftp)
+        df_for_tss = analysis.add_tss_columns(df_for_tss, ftp=ftp, user_id=args.user_id)
     weekly = analysis.weekly_summary(df_for_tss)
     plot_weekly(weekly, REPORTS_DIR / "weekly_volume.png")
 

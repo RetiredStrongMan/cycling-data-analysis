@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}登录失败 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-mark" style="color: #c62828">!</div>
+    <h1>登录失败</h1>
+    <p>{{ message }}</p>
+    <a class="btn mt-lg" href="{{ url_for('auth.login') }}">返回登录</a>
+  </div>
+</div>
+
+{% endblock %}

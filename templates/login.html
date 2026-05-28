@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}登录 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-mark">●</div>
+    <h1>Wilson 的 AI 教练</h1>
+    <p class="muted">用 Strava 账号登录,即可获取你专属的功率画像、训练负荷分析与比赛策略。</p>
+
+    <form action="{{ url_for('auth.login_start') }}" method="post" class="login-form">
+      <button type="submit" class="btn btn-strava">
+        使用 Strava 登录
+      </button>
+    </form>
+
+    <p class="muted small mt-lg">
+      首次登录会跳转到 Strava 授权页面。需要勾选 <strong>查看私密活动</strong>(activity:read_all)
+      和 <strong>查看个人资料</strong>(profile:read_all)两项权限,否则将无法读取你的完整骑行数据。
+    </p>
+    <p class="muted small">
+      数据全部存储在本地服务器,不会与第三方共享。注销或在 Strava 取消授权后,你的数据会被删除。
+    </p>
+  </div>
+</div>
+
+{% endblock %}

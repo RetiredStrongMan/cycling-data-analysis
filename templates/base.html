@@ -7,24 +7,42 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
+{% set user = current_user() %}
 <nav class="nav">
   <div class="nav-inner">
-    <a href="{{ url_for('dashboard') }}" class="logo">
+    <a href="{{ url_for('index') }}" class="logo">
       <span class="logo-mark">●</span> Wilson 的 AI 教练
     </a>
+    {% if user %}
     <ul class="nav-links">
       {% for label, endpoint in nav_items %}
         <li><a href="{{ url_for(endpoint) }}"
                class="{{ 'active' if request.endpoint == endpoint else '' }}">{{ label }}</a></li>
       {% endfor %}
     </ul>
+    <div class="nav-user">
+      <form action="{{ url_for('account_refresh') }}" method="post" style="display:inline">
+        <button type="submit" class="link-btn" title="从 Strava 同步最新骑行数据">↻ 同步</button>
+      </form>
+      <span class="muted small">·</span>
+      {% if user.profile_image_url %}<img src="{{ user.profile_image_url }}" alt="" class="nav-avatar">{% endif %}
+      <span class="nav-name">{{ user.display_name }}</span>
+      <form action="{{ url_for('auth.logout') }}" method="post" style="display:inline">
+        <button type="submit" class="link-btn">退出</button>
+      </form>
+    </div>
+    {% else %}
+    <ul class="nav-links">
+      <li><a href="{{ url_for('auth.login') }}" class="active">登录</a></li>
+    </ul>
+    {% endif %}
   </div>
 </nav>
 <main class="main">
   {% block content %}{% endblock %}
 </main>
 <footer class="footer">
-  <span>本地分析 · 数据截至上次同步</span>
+  <span>本地分析 · 数据截至上次同步{% if user and user.last_sync_at %} · {{ user.last_sync_at[:16] }}{% endif %}</span>
   <span class="muted">由 Strava API 提供 · 参考 WKO5 体系指标</span>
 </footer>
 </body>

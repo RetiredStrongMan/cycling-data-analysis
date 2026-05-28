@@ -62,6 +62,16 @@ import storage
 ROOT = Path(__file__).resolve().parent
 STREAMS_DIR = ROOT / "data" / "streams"
 
+
+def _streams_path(user_id: int, activity_id: int) -> Path:
+    """Per-user stream path. Falls back to legacy single-user path if the
+    new-style file doesn't exist (smooths over partial migrations)."""
+    p = STREAMS_DIR / str(user_id) / f"{activity_id}.json"
+    if p.exists():
+        return p
+    legacy = STREAMS_DIR / f"{activity_id}.json"
+    return legacy if legacy.exists() else p
+
 # ---- Coggan classic 7-zone model (% of FTP). Upper bound for each zone. ----
 COGGAN_ZONES = [
     ("Z1 主动恢复",       0.00, 0.55, "#9e9e9e"),
@@ -84,10 +94,12 @@ CYCLING_SPORT_TYPES = {
 }
 
 
-def load_rides(only_cycling: bool = True, only_with_power: bool = True) -> pd.DataFrame:
+def load_rides(user_id: int, only_cycling: bool = True,
+                only_with_power: bool = True) -> pd.DataFrame:
     conn = storage.connect()
     df = pd.read_sql(
-        "SELECT * FROM activities", conn,
+        "SELECT * FROM activities WHERE user_id = ?", conn,
+        params=(user_id,),
         parse_dates=["start_date", "start_date_local"],
     )
     conn.close()
@@ -99,8 +111,8 @@ def load_rides(only_cycling: bool = True, only_with_power: bool = True) -> pd.Da
     return df
 
 
-def load_streams(activity_id: int) -> dict[str, np.ndarray]:
-    p = STREAMS_DIR / f"{activity_id}.json"
+def load_streams(user_id: int, activity_id: int) -> dict[str, np.ndarray]:
+    p = _streams_path(user_id, activity_id)
     if not p.exists():
         return {}
     raw = json.loads(p.read_text())
@@ -113,13 +125,13 @@ def load_streams(activity_id: int) -> dict[str, np.ndarray]:
     return out
 
 
-def list_power_ride_ids(only_with_streams: bool = True) -> list[int]:
+def list_power_ride_ids(user_id: int, only_with_streams: bool = True) -> list[int]:
     conn = storage.connect()
-    q = "SELECT id FROM activities WHERE device_watts = 1"
+    q = "SELECT id FROM activities WHERE user_id = ? AND device_watts = 1"
     if only_with_streams:
         q += " AND streams_fetched_at IS NOT NULL"
     q += " ORDER BY start_date"
-    ids = [r[0] for r in conn.execute(q)]
+    ids = [r[0] for r in conn.execute(q, (user_id,))]
     conn.close()
     return ids
 
@@ -150,16 +162,17 @@ def _best_mean_max(power: np.ndarray, durations: Iterable[int]) -> dict[int, flo
 
 
 def power_duration_curve(
+    user_id: int,
     activity_ids: Iterable[int] | None = None,
     durations: Iterable[int] = DEFAULT_DURATIONS,
 ) -> pd.DataFrame:
-    """Best mean-max power across rides, for each duration. Index = seconds."""
+    """Best mean-max power across the user's rides, for each duration."""
     if activity_ids is None:
-        activity_ids = list_power_ride_ids()
+        activity_ids = list_power_ride_ids(user_id)
     durations = list(durations)
     best = {d: (float("-inf"), None, None) for d in durations}
     for aid in activity_ids:
-        streams = load_streams(aid)
+        streams = load_streams(user_id, aid)
         w = streams.get("watts")
         if w is None or w.size == 0:
             continue
@@ -204,14 +217,19 @@ def _monod(t: np.ndarray, cp: float, w_prime: float) -> np.ndarray:
     return cp + w_prime / t
 
 
-def fit_pd_model(pdc: pd.DataFrame | None = None) -> PDModel:
+def fit_pd_model(pdc: pd.DataFrame | None = None,
+                  user_id: int | None = None) -> PDModel:
     """Fit the Monod 2-parameter CP model to the Power-Duration Curve.
 
     Uses the 2-min to 20-min mean-max points (the canonical CP-fit window) and
     derives all WKO-style metrics from the fit + the raw curve.
+
+    Pass either a pre-computed `pdc` DataFrame, or `user_id` to compute it.
     """
     if pdc is None:
-        pdc = power_duration_curve()
+        if user_id is None:
+            raise ValueError("fit_pd_model needs either pdc or user_id")
+        pdc = power_duration_curve(user_id)
     pdc = pdc.dropna()
     if pdc.empty:
         return PDModel(0, 0, 0, 0, 0, 0, 0, 0, [])

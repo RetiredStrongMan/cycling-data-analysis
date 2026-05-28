@@ -432,17 +432,85 @@ def ride_detail(activity_id: int):
     )
 
 
+# ---- Race-strategy preset tables -----------------------------------------
+# CdA (frontal-area × drag coeff) defaults by (race_type, gender). Source: range
+# of published amateur values; women average ~6% lower due to smaller frontal area.
+CDA_BY_RACE_TYPE = {
+    "road_race":   {"male": 0.32, "female": 0.30},  # drops, club kit
+    "time_trial":  {"male": 0.26, "female": 0.24},  # TT bars, aero skinsuit
+    "criterium":   {"male": 0.30, "female": 0.28},  # drops, aggressive
+    "hilly":       {"male": 0.34, "female": 0.32},  # hoods on climbs, drops on descents
+    "endurance":   {"male": 0.36, "female": 0.34},  # hoods, comfort priority
+}
+
+# Map race_type → synthetic-course terrain pattern (used when no GPX uploaded).
+TERRAIN_BY_RACE_TYPE = {
+    "road_race": "rolling",
+    "time_trial": "flat_tt",
+    "criterium": "criterium",
+    "hilly": "hilly",
+    "endurance": "rolling",
+}
+
+# Intensity bias by race goal. Multiplies the per-segment %FTP target.
+INTENSITY_BY_GOAL = {
+    "finish":        0.88,
+    "peloton":       0.96,
+    "top20":         1.04,
+    "podium":        1.10,
+    "personal_best": 1.00,
+}
+
+GOAL_LABEL = {
+    "finish":        "稳妥完赛",
+    "peloton":       "跟住主集团",
+    "top20":         "冲击前 20%",
+    "podium":        "争夺领奖台",
+    "personal_best": "个人最佳成绩",
+}
+
+GOAL_ADVICE = {
+    "finish": "保守配速、平稳输出。把目标定在完赛,不必追逐前组。爬升时按你的 mFTP 配速,平路保持节奏即可。",
+    "peloton": "全程贴在主集团边缘——平路省力跟车,关键爬升段做好被拉爆前的心理准备,该咬牙时咬牙。这要求你的功率与集团平均水平相符。",
+    "top20": "积极但不盲目。把你的 FRC 储备留给关键攻击或终点冲刺,避免在不必要的早期攻击中烧光火柴。",
+    "podium": "战术第一,功率第二。盯紧主要竞争对手,关键时刻不留余地,W′ 全部用完。",
+    "personal_best": "按 TTE 区间配速,保持稳定输出贴在 mFTP 附近。这是你能持续做功的最高水平。",
+}
+
+
+def _age_intensity_modifier(age: int) -> float:
+    """Older riders can't sustain as much above-FTP work. Apply a small reduction."""
+    if age < 40: return 1.00
+    if age < 50: return 0.98
+    if age < 60: return 0.96
+    if age < 70: return 0.93
+    return 0.90
+
+
 @app.route("/race-strategy", methods=["GET", "POST"])
 @auth.login_required
 def race_strategy():
     import route as route_mod
     user = g.user
     pd_m = _pd_model_cache(user.id)
+
     distance_km = float(request.values.get("distance_km") or 40)
-    terrain = request.values.get("terrain", "rolling")
-    weight_kg = float(request.values.get("weight_kg") or user.weight_kg or 75)
-    cda = float(request.values.get("cda") or 0.32)
-    intensity_bias = float(request.values.get("intensity_bias") or 1.0)
+    weight_kg = float(request.values.get("weight_kg") or user.weight_kg or 70)
+    gender = request.values.get("gender") or "male"
+    if gender not in ("male", "female"):
+        gender = "male"
+    age = int(request.values.get("age") or 35)
+    race_type = request.values.get("race_type") or "road_race"
+    if race_type not in CDA_BY_RACE_TYPE:
+        race_type = "road_race"
+    goal = request.values.get("goal") or "peloton"
+    if goal not in INTENSITY_BY_GOAL:
+        goal = "peloton"
+
+    # Derive the technical parameters from the user-friendly inputs.
+    cda = CDA_BY_RACE_TYPE[race_type][gender]
+    terrain = TERRAIN_BY_RACE_TYPE[race_type]
+    intensity_bias = INTENSITY_BY_GOAL[goal] * _age_intensity_modifier(age)
     system_mass = weight_kg + 8.0
 
     course = None
@@ -518,8 +586,10 @@ def race_strategy():
     return render_template(
         "race_strategy.html",
         m=pd_m, plan=plan, course=course, course_error=course_error,
-        climbs=climbs, distance_km=distance_km, terrain=terrain,
-        weight_kg=weight_kg, cda=cda, intensity_bias=intensity_bias,
+        climbs=climbs,
+        distance_km=distance_km, weight_kg=weight_kg,
+        gender=gender, age=age, race_type=race_type, goal=goal,
+        goal_label=GOAL_LABEL[goal], goal_advice=GOAL_ADVICE[goal],
         plot=profile_plot_html, fmt_secs=fmt_secs,
     )
 

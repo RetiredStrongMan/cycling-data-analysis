@@ -4,37 +4,51 @@
 
 <header class="page-head">
   <h1>比赛策略与配速</h1>
-  <p class="muted">输入赛事距离即可估算,或上传路书文件(GPX / TCX)结合海拔获得逐段计划。</p>
+  <p class="muted">告诉我比赛信息和你的目标,AI 教练会基于你的功率画像生成针对性的配速方案。可选地上传路书获得逐段计划。</p>
 </header>
 
 <form method="post" action="{{ url_for('race_strategy') }}" enctype="multipart/form-data" class="panel form-row">
   <label>
-    赛事距离(km)
-    <input type="number" name="distance_km" value="{{ '%.0f' % distance_km }}" min="5" max="500" step="1">
+    性别
+    <select name="gender">
+      <option value="male"   {% if gender == 'male' %}selected{% endif %}>男</option>
+      <option value="female" {% if gender == 'female' %}selected{% endif %}>女</option>
+    </select>
   </label>
   <label>
-    赛道地形(无路书时)
-    <select name="terrain">
-      <option value="flat_tt"   {% if terrain == 'flat_tt' %}selected{% endif %}>平路计时赛</option>
-      <option value="rolling"   {% if terrain == 'rolling' %}selected{% endif %}>起伏公路赛</option>
-      <option value="hilly"     {% if terrain == 'hilly' %}selected{% endif %}>多坡 / 山地</option>
-      <option value="criterium" {% if terrain == 'criterium' %}selected{% endif %}>绕圈赛</option>
-    </select>
+    年龄
+    <input type="number" name="age" value="{{ age }}" min="14" max="90" step="1">
   </label>
   <label>
     体重(kg)
     <input type="number" name="weight_kg" value="{{ '%.0f' % weight_kg }}" min="40" max="120" step="0.5">
   </label>
   <label>
-    CdA(空气阻力系数)
-    <input type="number" name="cda" value="{{ '%.3f' % cda }}" min="0.18" max="0.50" step="0.005">
+    赛事距离(km)
+    <input type="number" name="distance_km" value="{{ '%.0f' % distance_km }}" min="5" max="500" step="1">
   </label>
   <label>
-    强度系数
-    <input type="number" name="intensity_bias" value="{{ '%.2f' % intensity_bias }}" min="0.80" max="1.20" step="0.05">
+    赛事类型
+    <select name="race_type">
+      <option value="road_race"   {% if race_type == 'road_race' %}selected{% endif %}>公路集团赛</option>
+      <option value="time_trial"  {% if race_type == 'time_trial' %}selected{% endif %}>个人计时赛 (TT)</option>
+      <option value="criterium"   {% if race_type == 'criterium' %}selected{% endif %}>绕圈赛</option>
+      <option value="hilly"       {% if race_type == 'hilly' %}selected{% endif %}>山地 / 多坡公路赛</option>
+      <option value="endurance"   {% if race_type == 'endurance' %}selected{% endif %}>长距离耐力赛 (Gran Fondo)</option>
+    </select>
   </label>
   <label>
-    路书文件(.gpx / .tcx)
+    比赛目标
+    <select name="goal">
+      <option value="finish"      {% if goal == 'finish' %}selected{% endif %}>稳妥完赛</option>
+      <option value="peloton"     {% if goal == 'peloton' %}selected{% endif %}>跟住主集团,不掉队</option>
+      <option value="top20"       {% if goal == 'top20' %}selected{% endif %}>冲击前 20%</option>
+      <option value="podium"      {% if goal == 'podium' %}selected{% endif %}>争夺领奖台</option>
+      <option value="personal_best" {% if goal == 'personal_best' %}selected{% endif %}>个人最佳成绩</option>
+    </select>
+  </label>
+  <label>
+    路书文件(可选,.gpx / .tcx)
     <input type="file" name="route_file" accept=".gpx,.tcx,.xml">
   </label>
   <button type="submit" class="btn">生成策略</button>
@@ -43,12 +57,6 @@
 {% if course_error %}
   <section class="panel mt-lg note" style="background:#fdecea;border-color:#f5c2bd">
     <strong>路书解析失败:</strong> {{ course_error }}
-  </section>
-{% endif %}
-
-{% if course_warning %}
-  <section class="panel mt-lg note" style="background:#fff8e1;border-color:#f5d97c">
-    <strong>注意:</strong> {{ course_warning }}
   </section>
 {% endif %}
 
@@ -101,16 +109,21 @@
   {{ plot|safe }}
 </section>
 
-{% if course %}
-  <section class="panel mt-lg">
-    <div class="panel-title">教练建议</div>
-    <p>{{ plan.notes }}</p>
-    <p class="muted small mt-sm">
-      W′ 余量沿途最低点:{{ '%.1f' % plan.wbal_min_kj }} kJ
-      ({{ '%.0f' % plan.wbal_min_pct }}% 的 FRC)。
-    </p>
-  </section>
+<section class="panel mt-lg">
+  <div class="panel-title">教练建议</div>
+  <p><strong>{{ goal_label }}</strong> — {{ goal_advice }}</p>
+  <p class="mt-sm">{{ plan.notes }}</p>
+  {% if course %}
+  <p class="muted small mt-sm">
+    W′ 余量沿途最低点:{{ '%.1f' % plan.wbal_min_kj }} kJ
+    ({{ '%.0f' % plan.wbal_min_pct }}% 的 FRC)。
+  </p>
+  {% else %}
+  <p class="muted small mt-sm">想要更精确的逐段计划?上传你的赛段 GPX 路书。可以在 Strava 路线、RideWithGPS、Komoot 等服务导出。</p>
+  {% endif %}
+</section>
 
+{% if course %}
   {% if climbs %}
   <section class="panel mt-lg">
     <div class="panel-title">沿途爬坡(共 {{ climbs|length }} 段)</div>
@@ -176,22 +189,15 @@
     </table>
     </div>
   </section>
-{% else %}
-  <section class="panel mt-lg">
-    <div class="panel-title">教练建议</div>
-    <p>{{ plan.notes }}</p>
-    <p class="muted small mt-sm">想要更精确的逐段计划?上传你的赛段 GPX 路书。可以在 Strava 路线、RideWithGPS、Komoot 等服务导出。</p>
-  </section>
 {% endif %}
 
 <section class="panel mt-lg note">
-  <strong>模型说明</strong>
+  <strong>预测如何计算</strong>
   <ul>
-    <li><strong>功率→速度</strong>:基于稳态自行车物理方程 <code>P·η = m·g·v·(grade + Crr) + 0.5·ρ·CdA·v³</code>,默认 Crr=0.005、ρ=1.225 kg/m³、传动效率 97%。</li>
-    <li><strong>分段配速</strong>:坡度 ≥ 5% 时推到 110–118% mFTP;1–3% 缓坡 95–102%;平路 90%;下坡按坡度递减至 20–40%。</li>
-    <li><strong>W′ 余量追踪</strong>:超过 CP 时按差额线性消耗,低于 CP 时按 τ_w(由 Skiba 经验公式)指数恢复。</li>
-    <li><strong>强度系数</strong>:个人主观调整全程目标功率上下浮动,适合状态偏好或天气补偿。</li>
-    <li><strong>CdA 参考</strong>:握下把 0.32 · 计时车 0.24 · 直把通勤 0.40。</li>
+    <li>根据你的<strong>性别 + 赛事类型</strong>自动设定空气阻力(CdA)默认值——计时赛比集团赛低,爬坡型比平路高。</li>
+    <li>根据你的<strong>比赛目标</strong>调整全程目标强度:稳妥完赛 ≈ 85% mFTP,跟集团 ≈ 95%,前 20% ≈ 105%,争冠 ≈ 112%。</li>
+    <li>结合<strong>路书海拔</strong>(若上传)分配每段功率——爬升段加力,下坡段恢复,确保 W′ 余量不会过早耗尽。</li>
+    <li>预计完赛时间根据稳态自行车物理方程 <code>P·η = m·g·v·(grade + Crr) + 0.5·ρ·CdA·v³</code> 求解。</li>
   </ul>
 </section>
 

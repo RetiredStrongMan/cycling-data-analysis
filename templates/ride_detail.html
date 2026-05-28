@@ -41,9 +41,63 @@
 </section>
 
 <section class="panel mt-lg">
-  <div class="panel-title">功率 · W′ 余量 · 心率</div>
+  <div class="panel-title">
+    功率 · W′ 余量 · 心率
+    {% if selected_lap %}
+      · <span class="muted">已选中第 {{ selected_lap.index }} 圈</span>
+      · <a class="link" href="{{ url_for('ride_detail', activity_id=activity_id) }}">显示全部</a>
+    {% endif %}
+  </div>
   {{ plot|safe }}
 </section>
+
+{% if laps %}
+<section class="panel mt-lg">
+  <div class="panel-title">
+    智能分圈(每 1 公里一圈,共 {{ laps|length }} 圈)
+    {% if selected_lap %}
+      <a class="link" style="float:right" href="{{ url_for('ride_detail', activity_id=activity_id) }}">清除选中</a>
+    {% endif %}
+  </div>
+  <div style="max-height: 360px; overflow-y: auto;">
+  <table class="data-table">
+    <thead style="position: sticky; top: 0; background: #fff; z-index: 1;">
+      <tr>
+        <th>圈</th>
+        <th class="num">距离</th>
+        <th class="num">用时</th>
+        <th class="num">配速</th>
+        <th class="num">平均 W</th>
+        <th class="num">NP</th>
+        <th class="num">最大 W</th>
+        <th class="num">平均心率</th>
+        <th class="num">踏频</th>
+        <th class="num">爬升</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for lap in laps %}
+      <tr {% if selected_lap and selected_lap.index == lap.index %}class="highlight"{% endif %}
+          onclick="window.location='{{ url_for('ride_detail', activity_id=activity_id, lap=lap.index) }}'"
+          style="cursor:pointer">
+        <td><strong>第 {{ lap.index }} 圈</strong></td>
+        <td class="num">{{ '%.2f' % (lap.distance_m / 1000) }} km</td>
+        <td class="num">{{ fmt_secs(lap.duration_s|round|int) }}</td>
+        <td class="num">{{ '%.1f' % lap.avg_speed_kmh }} km/h</td>
+        <td class="num">{{ lap.avg_power|round|int if lap.avg_power == lap.avg_power else '—' }}</td>
+        <td class="num">{{ lap.np_watts|round|int if lap.np_watts == lap.np_watts else '—' }}</td>
+        <td class="num">{{ lap.max_power|round|int if lap.max_power == lap.max_power else '—' }}</td>
+        <td class="num">{{ lap.avg_hr|round|int if lap.avg_hr else '—' }}</td>
+        <td class="num">{{ lap.avg_cadence|round|int if lap.avg_cadence else '—' }}</td>
+        <td class="num">{{ lap.elev_gain_m|round|int }} m</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="muted small mt-sm">点击任意一圈,上方曲线会缩放到对应区间并高亮显示。</p>
+</section>
+{% endif %}
 
 <section class="panel mt-lg">
   <div class="panel-title">功率区间分布</div>

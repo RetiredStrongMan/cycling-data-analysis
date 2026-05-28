@@ -344,6 +344,115 @@ def wbal_skiba(watts: np.ndarray, cp: float, w_prime: float) -> np.ndarray:
 #                         NP / IF / TSS / NORMALIZED
 # =====================================================================
 
+# =====================================================================
+#                            LAPS
+# =====================================================================
+
+@dataclass
+class Lap:
+    """One lap segment of a ride. Distances and times are absolute (from start)."""
+    index: int                 # 1-based lap number
+    start_s: float             # seconds from activity start
+    end_s: float
+    distance_m: float          # length of this lap only
+    duration_s: float
+    avg_power: float
+    np_watts: float            # normalized power for the lap
+    max_power: float
+    avg_hr: float | None
+    max_hr: float | None
+    avg_cadence: float | None
+    avg_speed_kmh: float
+    elev_gain_m: float
+
+
+def compute_laps(streams: dict, lap_distance_m: float = 1000.0) -> list[Lap]:
+    """Split an activity into fixed-distance laps using the distance stream.
+
+    Strava's UI default is 1 km auto-laps; we match that. The first and last
+    laps may be shorter if the route doesn't divide evenly.
+    """
+    distance = streams.get("distance")
+    if distance is None or distance.size == 0:
+        return []
+    time = streams.get("time")
+    watts = streams.get("watts")
+    hr = streams.get("heartrate")
+    cadence = streams.get("cadence")
+    altitude = streams.get("altitude")
+
+    total_m = float(distance[-1])
+    if total_m < lap_distance_m * 0.5:
+        # Activity shorter than half a lap — return the whole thing as lap 1
+        boundaries = [0, distance.size - 1]
+    else:
+        n_laps = max(1, int(np.ceil(total_m / lap_distance_m)))
+        boundaries = [0]
+        for i in range(1, n_laps + 1):
+            target_m = i * lap_distance_m
+            if target_m >= total_m:
+                idx = distance.size - 1
+            else:
+                idx = int(np.searchsorted(distance, target_m, side="left"))
+            boundaries.append(min(idx, distance.size - 1))
+
+    laps: list[Lap] = []
+    for i in range(len(boundaries) - 1):
+        start_idx, end_idx = boundaries[i], boundaries[i + 1]
+        if end_idx <= start_idx:
+            continue
+
+        lap_start_s = float(time[start_idx]) if time is not None else float(start_idx)
+        lap_end_s   = float(time[end_idx])   if time is not None else float(end_idx)
+        lap_dur     = max(lap_end_s - lap_start_s, 1.0)
+        lap_dist    = float(distance[end_idx] - distance[start_idx])
+
+        lap_w = watts[start_idx:end_idx + 1] if watts is not None else np.array([])
+        if lap_w.size:
+            avg_p = float(np.nan_to_num(lap_w).mean())
+            max_p = float(np.nanmax(lap_w))
+            np_p  = normalized_power(lap_w) if lap_w.size >= 30 else float("nan")
+        else:
+            avg_p = max_p = np_p = float("nan")
+
+        avg_hr_v = max_hr_v = None
+        if hr is not None and hr.size > end_idx:
+            lap_hr = hr[start_idx:end_idx + 1]
+            if lap_hr.size:
+                avg_hr_v = float(np.nan_to_num(lap_hr).mean())
+                max_hr_v = float(np.nanmax(lap_hr))
+
+        avg_cad_v = None
+        if cadence is not None and cadence.size > end_idx:
+            lap_c = cadence[start_idx:end_idx + 1]
+            active = lap_c[lap_c > 0]  # ignore coasting
+            if active.size:
+                avg_cad_v = float(active.mean())
+
+        elev_gain = 0.0
+        if altitude is not None and altitude.size > end_idx:
+            lap_alt = altitude[start_idx:end_idx + 1]
+            deltas = np.diff(lap_alt)
+            elev_gain = float(deltas[deltas > 0].sum())
+
+        laps.append(Lap(
+            index=i + 1,
+            start_s=lap_start_s,
+            end_s=lap_end_s,
+            distance_m=lap_dist,
+            duration_s=lap_dur,
+            avg_power=avg_p,
+            np_watts=np_p,
+            max_power=max_p,
+            avg_hr=avg_hr_v,
+            max_hr=max_hr_v,
+            avg_cadence=avg_cad_v,
+            avg_speed_kmh=(lap_dist / lap_dur * 3.6) if lap_dur > 0 else 0.0,
+            elev_gain_m=elev_gain,
+        ))
+    return laps
+
+
 def normalized_power(watts: np.ndarray) -> float:
     p = np.nan_to_num(watts.astype(float), nan=0.0)
     if p.size < 30:

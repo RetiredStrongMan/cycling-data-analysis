@@ -387,6 +387,13 @@ def ride_detail(activity_id: int):
     tiz = wko.time_in_zones(watts, ftp) if watts.size else {}
     wbal = wko.wbal_skiba(watts, pd_m.cp_raw, pd_m.w_prime) if watts.size and pd_m.cp_raw else np.array([])
 
+    # Smart-laps: 1 km auto-laps from the distance stream
+    laps = wko.compute_laps(streams)
+    selected_lap_idx = request.args.get("lap", type=int)
+    selected_lap = None
+    if selected_lap_idx and 1 <= selected_lap_idx <= len(laps):
+        selected_lap = laps[selected_lap_idx - 1]
+
     fig = go.Figure()
     if watts.size:
         smooth = pd.Series(watts).rolling(30, min_periods=1).mean()
@@ -401,6 +408,15 @@ def ride_detail(activity_id: int):
         fig.add_trace(go.Scatter(x=time_min, y=hr, name="心率 (bpm)",
                                  line=dict(color="#7e57c2", width=1.4), yaxis="y3",
                                  hovertemplate="%{x:.1f} 分钟 · %{y:.0f} bpm<extra></extra>"))
+    # If a lap is selected, highlight it on the chart and zoom the x-axis to its range.
+    if selected_lap is not None:
+        fig.add_vrect(
+            x0=selected_lap.start_s / 60.0, x1=selected_lap.end_s / 60.0,
+            fillcolor="#fc4c02", opacity=0.10, line_width=0,
+            annotation_text=f"第 {selected_lap.index} 圈",
+            annotation_position="top left",
+        )
+
     fig.update_layout(
         template=PLOTLY_TEMPLATE, height=560,
         yaxis=dict(title="功率 (W)", side="left"),
@@ -410,6 +426,13 @@ def ride_detail(activity_id: int):
         margin=dict(l=60, r=80, t=20, b=50),
         legend=dict(orientation="h", y=1.05, x=0),
     )
+    if selected_lap is not None:
+        # Add 5% padding on each side so the lap rect is clearly visible
+        pad = max(0.5, (selected_lap.end_s - selected_lap.start_s) * 0.05 / 60.0)
+        fig.update_xaxes(range=[
+            max(0, selected_lap.start_s / 60.0 - pad),
+            selected_lap.end_s / 60.0 + pad,
+        ])
 
     zfig = go.Figure()
     zones_meta = [{"name": n, "color": c} for n, _, _, c in wko.COGGAN_ZONES]
@@ -433,6 +456,7 @@ def ride_detail(activity_id: int):
         zone_plot=figure_html(zfig, "zone-plot"),
         wbal_min_kj=wbal_min_kj, wbal_min_pct=wbal_min_pct,
         ftp=int(ftp), zones_meta=zones_meta,
+        laps=laps, selected_lap=selected_lap, activity_id=activity_id,
     )
 
 

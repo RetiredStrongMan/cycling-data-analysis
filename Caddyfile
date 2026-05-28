@@ -1,0 +1,30 @@
+# Caddyfile — reverse proxy with automatic HTTPS via Let's Encrypt.
+# DOMAIN_NAME comes from docker-compose's env_file (.env).
+
+{$DOMAIN_NAME} {
+    # Forward everything to the Flask app container on the internal network.
+    reverse_proxy app:8080 {
+        # Pass real client IP + protocol so Flask's ProxyFix builds correct
+        # external URLs (needed for OAuth redirect_uri and webhook callbacks).
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    encode gzip zstd
+
+    # Reasonable security headers. The Strava-specific cookies we set are
+    # already HttpOnly + Secure + SameSite=Lax (see app.py).
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Plotly + Strava avatars need to be allow-listed
+        Content-Security-Policy "default-src 'self'; img-src 'self' data: https://*.strava.com https://*.cloudfront.net; script-src 'self' 'unsafe-inline' https://cdn.plot.ly; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+    }
+
+    # Tighter request body limit so people can't upload huge GPX files.
+    request_body {
+        max_size 25MB
+    }
+}

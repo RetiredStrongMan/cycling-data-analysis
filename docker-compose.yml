@@ -1,0 +1,59 @@
+# docker-compose for VPS deployment (Aliyun ECS in Hong Kong, DigitalOcean,
+# Vultr, Oracle Cloud, etc.). Pairs the Flask app with Caddy as a reverse
+# proxy that handles HTTPS automatically via Let's Encrypt.
+#
+# Quickstart:
+#   1. Put your domain in .env as DOMAIN_NAME=coach.example.com
+#   2. Point an A record at this VM's public IP.
+#   3. docker compose up -d
+#
+# Caddy will obtain a TLS cert on first request and renew it forever.
+
+services:
+  app:
+    build: .
+    image: cycling-coach:latest
+    restart: unless-stopped
+    expose:
+      - "8080"           # internal only — Caddy is the public-facing service
+    env_file:
+      - .env
+    environment:
+      - SESSION_COOKIE_SECURE=1
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - coach_data:/app/data
+    networks:
+      - coach_net
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"     # HTTP/3
+    env_file:
+      - .env              # DOMAIN_NAME is read by the Caddyfile
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # certs persisted across restarts
+      - caddy_config:/config
+    networks:
+      - coach_net
+    depends_on:
+      - app
+
+volumes:
+  coach_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  coach_net:

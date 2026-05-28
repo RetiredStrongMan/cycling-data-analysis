@@ -396,7 +396,7 @@ def ride_detail(activity_id: int):
                                  line=dict(color="#1976d2", width=1.4), yaxis="y2"))
     if hr is not None and hr.size:
         fig.add_trace(go.Scatter(x=time_s, y=hr, name="心率 (bpm)",
-                                 line=dict(color="#e53935", width=1), yaxis="y3"))
+                                 line=dict(color="#7e57c2", width=1.4), yaxis="y3"))
     fig.update_layout(
         template=PLOTLY_TEMPLATE, height=560,
         yaxis=dict(title="功率 (W)", side="left"),

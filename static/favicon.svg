@@ -1,0 +1,26 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6B35"/>
+      <stop offset="100%" stop-color="#E63900"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background, Strava-warm orange gradient -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <g transform="translate(256, 256)">
+    <!-- Chainring (12-tooth gear) in white -->
+    <polygon points="0.00,-198.00 44.00,-164.21 99.00,-171.47 120.21,-120.21 171.47,-99.00 164.21,-44.00 198.00,0.00 164.21,44.00 171.47,99.00 120.21,120.21 99.00,171.47 44.00,164.21 0.00,198.00 -44.00,164.21 -99.00,171.47 -120.21,120.21 -171.47,99.00 -164.21,44.00 -198.00,0.00 -164.21,-44.00 -171.47,-99.00 -120.21,-120.21 -99.00,-171.47 -44.00,-164.21" fill="white"/>
+
+    <!-- Inner hollow: orange background shows through -->
+    <circle r="78" fill="url(#bg)"/>
+
+    <!-- Performance spark: ascending line chart inside the hollow -->
+    <polyline points="-44,34 -16,10 12,-14 42,-40"
+              stroke="white" stroke-width="13"
+              fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Endpoint dot at the peak -->
+    <circle cx="42" cy="-40" r="8" fill="white"/>
+  </g>
+</svg>

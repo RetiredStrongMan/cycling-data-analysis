@@ -55,7 +55,13 @@ a:hover { text-decoration: underline; }
   letter-spacing: .2px;
 }
 .logo:hover { text-decoration: none; }
-.logo-mark { color: var(--orange); margin-right: 4px; }
+.logo-mark {
+  width: 22px;
+  height: 22px;
+  vertical-align: -5px;
+  margin-right: 6px;
+  border-radius: 5px;
+}
 .nav-links {
   display: flex;
   gap: 4px;
@@ -120,10 +126,18 @@ a:hover { text-decoration: underline; }
   text-align: center;
 }
 .login-mark {
-  font-size: 36px;
-  color: var(--orange);
-  margin-bottom: 6px;
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 14px;
+  border-radius: 16px;
+}
+.login-error-mark {
+  font-size: 42px;
+  font-weight: 700;
+  color: #c62828;
   line-height: 1;
+  margin-bottom: 8px;
 }
 .login-card h1 { margin: 4px 0 12px; font-size: 22px; }
 .login-form { margin-top: 18px; }

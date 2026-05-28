@@ -70,6 +70,24 @@ def login_required(view):
     return wrapper
 
 
+def data_required(view):
+    """login_required + redirect to /backfilling if the user's data isn't ready.
+
+    Use this on any page that reads activities/streams. The user can still
+    navigate to login/logout/backfilling-status without being bounced.
+    """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        u = current_user()
+        if u is None:
+            session["next"] = request.path
+            return redirect(url_for("auth.login"))
+        if u.backfill_state in ("pending", "running", "failed"):
+            return redirect(url_for("backfilling"))
+        return view(*args, **kwargs)
+    return wrapper
+
+
 # ---------------------------------------------------------------------
 #                          ROUTES
 # ---------------------------------------------------------------------
@@ -155,13 +173,19 @@ def oauth_callback():
             access_token_expires=int(body["expires_at"]),
         )
         sid = storage.create_session(conn, user.id)
+        kick_backfill = user.backfill_state == "pending"
     finally:
         conn.close()
 
-    # Trigger an initial backfill job (Phase 2 will move this to a worker).
-    # For Phase 1 we just mark the state; the user already has data if they
-    # migrated, and we'll add web-triggered backfill in the worker phase.
-    next_path = session.pop("next", None) or url_for("dashboard")
+    # Brand-new user → kick off a background full-history backfill. The
+    # `backfilling` page will poll for progress and redirect to the dashboard
+    # once it's done. Failed-state users retry via an explicit button.
+    if kick_backfill:
+        import worker
+        worker.submit_backfill(user.id)
+        next_path = url_for("backfilling")
+    else:
+        next_path = session.pop("next", None) or url_for("dashboard")
     response = redirect(next_path)
     response.set_cookie(
         SESSION_COOKIE_NAME, sid,

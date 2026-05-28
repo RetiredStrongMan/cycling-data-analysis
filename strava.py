@@ -19,6 +19,7 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+import rate_limit
 import storage
 
 ROOT = Path(__file__).resolve().parent
@@ -122,26 +123,18 @@ class StravaClient:
             l15, ld = (int(x) for x in limit.split(","))
             self.usage_15min, self.usage_daily = u15, ud
             self.limit_15min, self.limit_daily = l15, ld
+            # Push Strava's authoritative numbers into the process-global bucket
+            # so all workers see the same view.
+            rate_limit.GLOBAL.update_from_response(u15, l15, ud, ld)
         except Exception:
             pass
-
-    def _throttle_if_needed(self) -> None:
-        if self.limit_15min and self.usage_15min >= int(self.limit_15min * 0.9):
-            now = time.time()
-            seconds_into_window = int(now) % 900
-            sleep_for = 900 - seconds_into_window + 5
-            print(f"[strava] 15-min usage {self.usage_15min}/{self.limit_15min} — "
-                  f"sleeping {sleep_for}s")
-            time.sleep(sleep_for)
-        if self.limit_daily and self.usage_daily >= int(self.limit_daily * 0.97):
-            print(f"[strava] daily usage {self.usage_daily}/{self.limit_daily} — "
-                  "stopping until UTC midnight.")
-            raise StravaQuotaExhausted("daily quota near full")
 
     # ---- HTTP ----
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         self._ensure_access_token()
-        self._throttle_if_needed()
+        # Process-global rate-limit gate — blocks until both the 15-min and
+        # daily Strava quotas have budget. Coordinates across worker threads.
+        rate_limit.GLOBAL.acquire(1)
         url = path if path.startswith("http") else f"{API_BASE}{path}"
         for attempt in range(5):
             resp = requests.get(

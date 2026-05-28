@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}正在同步 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<div class="login-wrap">
+  <div class="login-card" style="max-width: 560px">
+    <img src="{{ url_for('static', filename='favicon.svg') }}" alt="" class="login-mark">
+    <h1>正在同步你的骑行数据</h1>
+    <p class="muted">从 Strava 下载完整骑行历史 + 每一次骑行的功率/心率/速度数据流。第一次同步需要较长时间(可能数小时),因为 Strava 限制每 15 分钟最多 100 次请求。</p>
+
+    <div id="status-block" class="mt-lg">
+      <div id="status-label" class="big-text">准备中…</div>
+      <div class="bar" style="height: 12px">
+        <div id="progress-fill" class="bar-fill" style="width: 0%"></div>
+      </div>
+      <div id="progress-text" class="muted small mt-sm">0 / 0 段已抓取</div>
+      <div id="rate-text" class="muted small">速率额度:0 / 100(15 分钟) · 0 / 1000(每日)</div>
+    </div>
+
+    <div id="actions" class="mt-lg" style="display:none">
+      <a class="btn" href="{{ url_for('dashboard') }}">进入主页 →</a>
+    </div>
+
+    <div id="retry-block" class="mt-lg" style="display:none">
+      <p class="muted">同步遇到了问题。检查网络后可以重试。</p>
+      <form action="{{ url_for('backfill_retry') }}" method="post">
+        <button type="submit" class="btn">重新开始同步</button>
+      </form>
+    </div>
+
+    <p class="muted small mt-lg">
+      可以关掉这个标签页,稍后再回来——同步在后台进行。回来后这个页面会显示最新进度。
+    </p>
+  </div>
+</div>
+
+<script>
+(function() {
+  const stateLabel = {
+    "pending":  "排队中…",
+    "running":  "正在抓取…",
+    "done":     "完成!",
+    "failed":   "同步失败",
+    "unknown":  "状态未知",
+  };
+
+  async function poll() {
+    try {
+      const r = await fetch("{{ url_for('backfill_status') }}", { cache: "no-store" });
+      if (!r.ok) throw new Error("status " + r.status);
+      const data = await r.json();
+      document.getElementById("status-label").textContent = stateLabel[data.state] || data.state;
+      const pct = data.total > 0 ? Math.min(100, Math.round(100 * data.progress / data.total)) : 0;
+      document.getElementById("progress-fill").style.width = pct + "%";
+      document.getElementById("progress-text").textContent =
+        data.progress + " / " + data.total + " 段已抓取 (" + pct + "%)";
+      if (data.rate_limits) {
+        const rl = data.rate_limits;
+        document.getElementById("rate-text").textContent =
+          "速率额度:" + rl.usage_15min + " / " + rl.limit_15min +
+          "(15 分钟) · " + rl.usage_daily + " / " + rl.limit_daily + "(每日)";
+      }
+      if (data.state === "done") {
+        document.getElementById("actions").style.display = "block";
+        document.getElementById("retry-block").style.display = "none";
+        // Auto-redirect after a brief moment so the user sees the 100%
+        setTimeout(() => { window.location = "{{ url_for('dashboard') }}"; }, 1500);
+        return;
+      }
+      if (data.state === "failed") {
+        document.getElementById("retry-block").style.display = "block";
+        return;
+      }
+    } catch (e) {
+      document.getElementById("status-label").textContent = "连接服务器失败,稍后重试…";
+    }
+    setTimeout(poll, 5000);
+  }
+  poll();
+})();
+</script>
+
+{% endblock %}

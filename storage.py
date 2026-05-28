@@ -116,8 +116,14 @@ def _ensure_dirs() -> None:
 
 def connect() -> sqlite3.Connection:
     _ensure_dirs()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30.0)
     conn.row_factory = sqlite3.Row
+    # WAL: allows concurrent readers + one writer. With background workers
+    # plus the Flask request thread hitting the DB, the default rollback
+    # journal would serialise too aggressively.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")  # fast + still durable in WAL
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.executescript(SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
     _ensure_columns(conn)

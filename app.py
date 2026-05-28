@@ -22,8 +22,11 @@ from dotenv import load_dotenv
 from flask import Flask, abort, g, redirect, render_template, request, url_for
 
 import auth
+import rate_limit
 import storage
+import webhook
 import wko
+import worker
 
 # Load .env so STRAVA_CLIENT_ID/SECRET + SECRET_KEY are available.
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +41,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.jinja_env.globals.update(zip=zip, enumerate=enumerate)
 
 auth.init_app(app)
+webhook.init_app(app)
+
+# Reconcile any backfill jobs left in 'running' state from a previous process
+# (likely killed mid-flight). They get marked failed so the user can retry.
+worker.reconcile_on_startup()
 
 PLOTLY_TEMPLATE = "plotly_white"
 
@@ -93,7 +101,7 @@ def index():
 # =====================================================================
 
 @app.route("/dashboard")
-@auth.login_required
+@auth.data_required
 def dashboard():
     user = g.user
     pd_m = _pd_model_cache(user.id)
@@ -136,7 +144,7 @@ def dashboard():
 
 
 @app.route("/power-curve")
-@auth.login_required
+@auth.data_required
 def power_curve():
     user = g.user
     pdc = _pdc_cache(user.id)
@@ -208,7 +216,7 @@ def power_curve():
 
 
 @app.route("/rider-profile")
-@auth.login_required
+@auth.data_required
 def rider_profile():
     user = g.user
     pd_m = _pd_model_cache(user.id)
@@ -254,7 +262,7 @@ def rider_profile():
 
 
 @app.route("/training-load")
-@auth.login_required
+@auth.data_required
 def training_load():
     user = g.user
     pd_m = _pd_model_cache(user.id)
@@ -291,7 +299,7 @@ def training_load():
 
 
 @app.route("/zones")
-@auth.login_required
+@auth.data_required
 def zones():
     user = g.user
     pd_m = _pd_model_cache(user.id)
@@ -348,7 +356,7 @@ def zones():
 
 
 @app.route("/rides")
-@auth.login_required
+@auth.data_required
 def rides_list():
     user = g.user
     rides = get_rides(user.id)
@@ -358,7 +366,7 @@ def rides_list():
 
 
 @app.route("/ride/<int:activity_id>")
-@auth.login_required
+@auth.data_required
 def ride_detail(activity_id: int):
     user = g.user
     pd_m = _pd_model_cache(user.id)
@@ -524,7 +532,7 @@ def _age_intensity_modifier(age: int) -> float:
 
 
 @app.route("/race-strategy", methods=["GET", "POST"])
-@auth.login_required
+@auth.data_required
 def race_strategy():
     import route as route_mod
     user = g.user
@@ -645,6 +653,56 @@ def race_strategy():
         user_weight_from_strava=user.weight_kg is not None,
         plot=profile_plot_html, fmt_secs=fmt_secs,
     )
+
+
+# =====================================================================
+#                       BACKFILL PROGRESS
+# =====================================================================
+
+@app.route("/backfilling")
+@auth.login_required
+def backfilling():
+    """Progress page shown while initial backfill runs.
+
+    Polls /account/backfill-status every 5 seconds via JS. Redirects to the
+    dashboard once state == 'done'. Offers a Retry button on failure.
+    """
+    return render_template("backfilling.html",
+                           user=g.user,
+                           rate_snapshot=rate_limit.GLOBAL.snapshot())
+
+
+@app.route("/account/backfill-status")
+@auth.login_required
+def backfill_status():
+    """JSON snapshot the progress page polls."""
+    from flask import jsonify
+    conn = storage.connect()
+    try:
+        u = storage.get_user(conn, g.user.id)
+    finally:
+        conn.close()
+    if u is None:
+        return jsonify({"state": "unknown"}), 404
+    return jsonify({
+        "state": u.backfill_state,
+        "progress": u.backfill_progress,
+        "total": u.backfill_total,
+        "rate_limits": rate_limit.GLOBAL.snapshot(),
+    })
+
+
+@app.route("/account/backfill-retry", methods=["POST"])
+@auth.login_required
+def backfill_retry():
+    """Re-submit a failed backfill. Idempotent: no-op if already running."""
+    conn = storage.connect()
+    try:
+        storage.update_backfill_state(conn, g.user.id, state="pending")
+    finally:
+        conn.close()
+    worker.submit_backfill(g.user.id)
+    return redirect(url_for("backfilling"))
 
 
 @app.route("/account/refresh", methods=["POST"])

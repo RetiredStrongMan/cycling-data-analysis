@@ -380,6 +380,7 @@ def ride_detail(activity_id: int):
     watts = streams.get("watts", np.array([]))
     hr = streams.get("heartrate")
     time_s = streams.get("time", np.arange(watts.size))
+    time_min = time_s / 60.0  # x-axis in minutes for readability
 
     np_w = wko.normalized_power(watts) if watts.size else float("nan")
     ts = wko.tss(np_w, ftp, info.get("moving_time") or 0)
@@ -389,20 +390,23 @@ def ride_detail(activity_id: int):
     fig = go.Figure()
     if watts.size:
         smooth = pd.Series(watts).rolling(30, min_periods=1).mean()
-        fig.add_trace(go.Scatter(x=time_s, y=smooth, name="功率(30 秒平滑)",
-                                 line=dict(color="#fc4c02", width=1.2)))
+        fig.add_trace(go.Scatter(x=time_min, y=smooth, name="功率(30 秒平滑)",
+                                 line=dict(color="#fc4c02", width=1.2),
+                                 hovertemplate="%{x:.1f} 分钟 · %{y:.0f} W<extra></extra>"))
     if wbal.size:
-        fig.add_trace(go.Scatter(x=time_s, y=wbal / 1000, name="W′ 余量 (kJ)",
-                                 line=dict(color="#1976d2", width=1.4), yaxis="y2"))
+        fig.add_trace(go.Scatter(x=time_min, y=wbal / 1000, name="W′ 余量 (kJ)",
+                                 line=dict(color="#1976d2", width=1.4), yaxis="y2",
+                                 hovertemplate="%{x:.1f} 分钟 · %{y:.1f} kJ<extra></extra>"))
     if hr is not None and hr.size:
-        fig.add_trace(go.Scatter(x=time_s, y=hr, name="心率 (bpm)",
-                                 line=dict(color="#7e57c2", width=1.4), yaxis="y3"))
+        fig.add_trace(go.Scatter(x=time_min, y=hr, name="心率 (bpm)",
+                                 line=dict(color="#7e57c2", width=1.4), yaxis="y3",
+                                 hovertemplate="%{x:.1f} 分钟 · %{y:.0f} bpm<extra></extra>"))
     fig.update_layout(
         template=PLOTLY_TEMPLATE, height=560,
         yaxis=dict(title="功率 (W)", side="left"),
         yaxis2=dict(title="W' 余量 (kJ)", overlaying="y", side="right"),
         yaxis3=dict(title="心率", overlaying="y", side="right", position=0.97, showgrid=False),
-        xaxis_title="时间(秒)",
+        xaxis_title="时间(分钟)",
         margin=dict(l=60, r=80, t=20, b=50),
         legend=dict(orientation="h", y=1.05, x=0),
     )

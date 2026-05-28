@@ -350,9 +350,9 @@ def wbal_skiba(watts: np.ndarray, cp: float, w_prime: float) -> np.ndarray:
 
 @dataclass
 class Lap:
-    """One lap segment of a ride. Distances and times are absolute (from start)."""
+    """One lap or effort-segment of a ride. Times are seconds from activity start."""
     index: int                 # 1-based lap number
-    start_s: float             # seconds from activity start
+    start_s: float
     end_s: float
     distance_m: float          # length of this lap only
     duration_s: float
@@ -364,6 +364,209 @@ class Lap:
     avg_cadence: float | None
     avg_speed_kmh: float
     elev_gain_m: float
+    # Smart-segmentation fields (None when using fixed-distance laps)
+    kind: str = "lap"          # 'work' | 'rest' | 'lap'
+    intensity_label: str | None = None  # 'Recovery' / 'Endurance' / 'Tempo' / 'Threshold' / 'VO2max' / 'Anaerobic' / 'Neuromuscular'
+
+
+def _lap_from_window(
+    index: int, start_idx: int, end_idx: int, streams: dict,
+    kind: str = "lap", intensity_label: str | None = None,
+) -> Lap | None:
+    """Build a Lap from a [start_idx, end_idx] window of streams."""
+    distance = streams.get("distance")
+    time = streams.get("time")
+    watts = streams.get("watts")
+    hr = streams.get("heartrate")
+    cadence = streams.get("cadence")
+    altitude = streams.get("altitude")
+
+    if end_idx <= start_idx:
+        return None
+
+    lap_start_s = float(time[start_idx]) if time is not None else float(start_idx)
+    lap_end_s   = float(time[end_idx])   if time is not None else float(end_idx)
+    lap_dur     = max(lap_end_s - lap_start_s, 1.0)
+    lap_dist    = float(distance[end_idx] - distance[start_idx]) if distance is not None else 0.0
+
+    lap_w = watts[start_idx:end_idx + 1] if watts is not None else np.array([])
+    if lap_w.size:
+        avg_p = float(np.nan_to_num(lap_w).mean())
+        max_p = float(np.nanmax(lap_w))
+        np_p  = normalized_power(lap_w) if lap_w.size >= 30 else float("nan")
+    else:
+        avg_p = max_p = np_p = float("nan")
+
+    avg_hr_v = max_hr_v = None
+    if hr is not None and hr.size > end_idx:
+        lap_hr = hr[start_idx:end_idx + 1]
+        if lap_hr.size:
+            avg_hr_v = float(np.nan_to_num(lap_hr).mean())
+            max_hr_v = float(np.nanmax(lap_hr))
+
+    avg_cad_v = None
+    if cadence is not None and cadence.size > end_idx:
+        lap_c = cadence[start_idx:end_idx + 1]
+        active = lap_c[lap_c > 0]
+        if active.size:
+            avg_cad_v = float(active.mean())
+
+    elev_gain = 0.0
+    if altitude is not None and altitude.size > end_idx:
+        lap_alt = altitude[start_idx:end_idx + 1]
+        deltas = np.diff(lap_alt)
+        elev_gain = float(deltas[deltas > 0].sum())
+
+    return Lap(
+        index=index,
+        start_s=lap_start_s,
+        end_s=lap_end_s,
+        distance_m=lap_dist,
+        duration_s=lap_dur,
+        avg_power=avg_p,
+        np_watts=np_p,
+        max_power=max_p,
+        avg_hr=avg_hr_v,
+        max_hr=max_hr_v,
+        avg_cadence=avg_cad_v,
+        avg_speed_kmh=(lap_dist / lap_dur * 3.6) if lap_dur > 0 else 0.0,
+        elev_gain_m=elev_gain,
+        kind=kind,
+        intensity_label=intensity_label,
+    )
+
+
+def _intensity_label(power_to_ftp: float) -> str:
+    """Classify a sustained effort by its fraction of mFTP."""
+    if power_to_ftp >= 1.50:  return "神经肌肉"
+    if power_to_ftp >= 1.20:  return "无氧"
+    if power_to_ftp >= 1.05:  return "VO2max"
+    if power_to_ftp >= 0.90:  return "阈值"
+    if power_to_ftp >= 0.75:  return "节奏"
+    if power_to_ftp >= 0.55:  return "耐力"
+    return "恢复"
+
+
+def smart_laps(
+    streams: dict, mftp: float,
+    work_threshold: float = 0.90,
+    rest_threshold: float = 0.65,
+    min_segment_s: float = 30.0,
+) -> list[Lap]:
+    """Detect work/rest segments using threshold + hysteresis + merging.
+
+    Algorithm:
+      1. Smooth watts with a 30-second rolling mean (reduces device noise).
+      2. Classify each sample: 'work' (>work_threshold × mFTP),
+         'rest' (<rest_threshold × mFTP), or 'transition' (between).
+      3. Hysteresis: transition samples inherit the previous non-transition state.
+      4. Find contiguous runs of identical state; merge runs shorter than
+         `min_segment_s` into the longer adjacent neighbor (preserves structure).
+      5. Build Lap objects, labelling each work segment by avg-power intensity.
+
+    Works well for both structured interval workouts (clean alternation between
+    intense and easy) and natural rides (long endurance blocks with occasional
+    surges).
+    """
+    watts = streams.get("watts")
+    time = streams.get("time")
+    if watts is None or watts.size == 0 or mftp <= 0:
+        return []
+
+    n = watts.size
+    smoothed = pd.Series(watts).rolling(30, min_periods=1).mean().to_numpy()
+
+    work_w = mftp * work_threshold
+    rest_w = mftp * rest_threshold
+    states = np.zeros(n, dtype=np.int8)   # 0 = transition
+    states[smoothed > work_w] = 1
+    states[smoothed < rest_w] = -1
+
+    # Hysteresis pass: each transition sample inherits the previous state.
+    # Initial leading transitions inherit the first definite state.
+    first_def = next((int(s) for s in states if s != 0), 1)
+    last = first_def
+    for i in range(n):
+        if states[i] == 0:
+            states[i] = last
+        else:
+            last = int(states[i])
+
+    # Find contiguous runs
+    edges = [0]
+    for i in range(1, n):
+        if states[i] != states[i - 1]:
+            edges.append(i)
+    edges.append(n - 1)
+
+    # Build initial segments
+    raw: list[dict] = []
+    for i in range(len(edges) - 1):
+        s_idx, e_idx = edges[i], edges[i + 1]
+        s_time = float(time[s_idx]) if time is not None else float(s_idx)
+        e_time = float(time[e_idx]) if time is not None else float(e_idx)
+        raw.append({
+            "start_idx": s_idx, "end_idx": e_idx,
+            "state": int(states[s_idx]),
+            "duration": e_time - s_time,
+        })
+
+    # Iteratively absorb segments shorter than min_segment_s into the longer neighbor
+    def merge_short(segs):
+        changed = True
+        while changed and len(segs) > 1:
+            changed = False
+            i = 0
+            while i < len(segs):
+                if segs[i]["duration"] < min_segment_s and len(segs) > 1:
+                    # Pick longer neighbor as target
+                    if i == 0:
+                        tgt = 1
+                    elif i == len(segs) - 1:
+                        tgt = len(segs) - 2
+                    else:
+                        tgt = i - 1 if segs[i - 1]["duration"] >= segs[i + 1]["duration"] else i + 1
+                    # Merge segs[i] into segs[tgt]
+                    if tgt < i:
+                        segs[tgt]["end_idx"] = segs[i]["end_idx"]
+                    else:
+                        segs[tgt]["start_idx"] = segs[i]["start_idx"]
+                    s_time = float(time[segs[tgt]["start_idx"]]) if time is not None else float(segs[tgt]["start_idx"])
+                    e_time = float(time[segs[tgt]["end_idx"]]) if time is not None else float(segs[tgt]["end_idx"])
+                    segs[tgt]["duration"] = e_time - s_time
+                    segs.pop(i)
+                    changed = True
+                    continue
+                i += 1
+        return segs
+
+    raw = merge_short(raw)
+
+    # Coalesce adjacent same-state segments (can happen after merges)
+    coalesced: list[dict] = []
+    for seg in raw:
+        if coalesced and coalesced[-1]["state"] == seg["state"]:
+            coalesced[-1]["end_idx"] = seg["end_idx"]
+            coalesced[-1]["duration"] += seg["duration"]
+        else:
+            coalesced.append(seg)
+
+    laps: list[Lap] = []
+    for i, seg in enumerate(coalesced, start=1):
+        kind = "work" if seg["state"] == 1 else "rest"
+        lap = _lap_from_window(i, seg["start_idx"], seg["end_idx"], streams)
+        if lap is None:
+            continue
+        lap.kind = kind
+        if kind == "work" and mftp > 0 and not math.isnan(lap.avg_power):
+            lap.intensity_label = _intensity_label(lap.avg_power / mftp)
+        else:
+            lap.intensity_label = "恢复"
+        laps.append(lap)
+    # Re-number contiguously after merges
+    for new_idx, lap in enumerate(laps, start=1):
+        lap.index = new_idx
+    return laps
 
 
 def compute_laps(streams: dict, lap_distance_m: float = 1000.0) -> list[Lap]:

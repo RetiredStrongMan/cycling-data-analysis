@@ -53,17 +53,29 @@
 
 {% if laps %}
 <section class="panel mt-lg">
-  <div class="panel-title">
-    智能分圈(每 1 公里一圈,共 {{ laps|length }} 圈)
-    {% if selected_lap %}
-      <a class="link" style="float:right" href="{{ url_for('ride_detail', activity_id=activity_id) }}">清除选中</a>
-    {% endif %}
+  <div class="panel-title" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <span>
+      {% if lap_mode == 'smart' %}智能分段(按功率结构自动识别){% else %}1 公里固定分圈{% endif %}
+      · 共 {{ laps|length }} 段
+    </span>
+    <span>
+      <a class="link {% if lap_mode == 'smart' %}active-mode{% endif %}"
+         href="{{ url_for('ride_detail', activity_id=activity_id, mode='smart') }}">智能识别</a>
+      ·
+      <a class="link {% if lap_mode == 'fixed' %}active-mode{% endif %}"
+         href="{{ url_for('ride_detail', activity_id=activity_id, mode='fixed') }}">每 1 公里</a>
+      {% if selected_lap %}
+        ·
+        <a class="link" href="{{ url_for('ride_detail', activity_id=activity_id, mode=lap_mode) }}">清除选中</a>
+      {% endif %}
+    </span>
   </div>
   <div style="max-height: 360px; overflow-y: auto;">
   <table class="data-table">
     <thead style="position: sticky; top: 0; background: #fff; z-index: 1;">
       <tr>
-        <th>圈</th>
+        <th>段</th>
+        {% if lap_mode == 'smart' %}<th>类型</th>{% endif %}
         <th class="num">距离</th>
         <th class="num">用时</th>
         <th class="num">配速</th>
@@ -77,10 +89,22 @@
     </thead>
     <tbody>
       {% for lap in laps %}
-      <tr {% if selected_lap and selected_lap.index == lap.index %}class="highlight"{% endif %}
-          onclick="window.location='{{ url_for('ride_detail', activity_id=activity_id, lap=lap.index) }}'"
+      <tr class="{% if selected_lap and selected_lap.index == lap.index %}highlight{% endif %} {% if lap.kind == 'work' %}row-work{% elif lap.kind == 'rest' %}row-rest{% endif %}"
+          onclick="window.location='{{ url_for('ride_detail', activity_id=activity_id, mode=lap_mode, lap=lap.index) }}'"
           style="cursor:pointer">
-        <td><strong>第 {{ lap.index }} 圈</strong></td>
+        <td>
+          {% if lap.kind == 'work' %}<span class="lap-bar lap-bar-work"></span>{% elif lap.kind == 'rest' %}<span class="lap-bar lap-bar-rest"></span>{% else %}<span class="lap-bar lap-bar-lap"></span>{% endif %}
+          <strong>{% if lap_mode == 'smart' %}#{{ lap.index }}{% else %}第 {{ lap.index }} 圈{% endif %}</strong>
+        </td>
+        {% if lap_mode == 'smart' %}
+        <td>
+          {% if lap.kind == 'work' %}
+            <span class="tag tag-orange">{{ lap.intensity_label }}</span>
+          {% else %}
+            <span class="tag tag-gray">{{ lap.intensity_label }}</span>
+          {% endif %}
+        </td>
+        {% endif %}
         <td class="num">{{ '%.2f' % (lap.distance_m / 1000) }} km</td>
         <td class="num">{{ fmt_secs(lap.duration_s|round|int) }}</td>
         <td class="num">{{ '%.1f' % lap.avg_speed_kmh }} km/h</td>
@@ -95,7 +119,13 @@
     </tbody>
   </table>
   </div>
-  <p class="muted small mt-sm">点击任意一圈,上方曲线会缩放到对应区间并高亮显示。</p>
+  <p class="muted small mt-sm">
+    {% if lap_mode == 'smart' %}
+      算法:30 秒平滑后,功率 &gt; 90% mFTP 为<strong>工作段</strong>,&lt; 65% mFTP 为<strong>恢复段</strong>,过短段(&lt; 30 秒)自动并入相邻段。点击任意一段,上方曲线会缩放到对应区间。
+    {% else %}
+      每 1 公里自动一圈。点击任意一圈,上方曲线会缩放到对应区间。
+    {% endif %}
+  </p>
 </section>
 {% endif %}
 

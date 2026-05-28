@@ -387,8 +387,15 @@ def ride_detail(activity_id: int):
     tiz = wko.time_in_zones(watts, ftp) if watts.size else {}
     wbal = wko.wbal_skiba(watts, pd_m.cp_raw, pd_m.w_prime) if watts.size and pd_m.cp_raw else np.array([])
 
-    # Smart-laps: 1 km auto-laps from the distance stream
-    laps = wko.compute_laps(streams)
+    # Lap segmentation: 'smart' (work/rest detection) or 'fixed' (every 1 km)
+    lap_mode = request.args.get("mode", "smart")
+    if lap_mode == "smart":
+        laps = wko.smart_laps(streams, mftp=pd_m.mftp or ftp)
+        if not laps:  # fallback if power signal too weak / no mFTP
+            laps = wko.compute_laps(streams)
+            lap_mode = "fixed"
+    else:
+        laps = wko.compute_laps(streams)
     selected_lap_idx = request.args.get("lap", type=int)
     selected_lap = None
     if selected_lap_idx and 1 <= selected_lap_idx <= len(laps):
@@ -457,6 +464,7 @@ def ride_detail(activity_id: int):
         wbal_min_kj=wbal_min_kj, wbal_min_pct=wbal_min_pct,
         ftp=int(ftp), zones_meta=zones_meta,
         laps=laps, selected_lap=selected_lap, activity_id=activity_id,
+        lap_mode=lap_mode,
     )
 
 

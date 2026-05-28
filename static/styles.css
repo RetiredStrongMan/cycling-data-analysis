@@ -311,6 +311,32 @@ a:hover { text-decoration: underline; }
   vertical-align: middle;
 }
 
+/* Lap row indicators (work / rest / fixed-lap) */
+.lap-bar {
+  display: inline-block;
+  width: 3px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: -3px;
+  border-radius: 2px;
+}
+.lap-bar-work { background: var(--orange); }
+.lap-bar-rest { background: #b0bec5; }
+.lap-bar-lap  { background: var(--blue); }
+.data-table tr.row-work td { background: rgba(252, 76, 2, 0.04); }
+.data-table tr.row-work:hover td { background: rgba(252, 76, 2, 0.10); }
+.data-table tr.row-rest td { background: rgba(120, 130, 140, 0.04); }
+.data-table tr.row-rest:hover td { background: rgba(120, 130, 140, 0.10); }
+
+/* Toggle between lap modes */
+.link.active-mode {
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--orange);
+  text-underline-offset: 4px;
+}
+
 /* ---------- Forms ---------- */
 .form-row {
   display: flex;

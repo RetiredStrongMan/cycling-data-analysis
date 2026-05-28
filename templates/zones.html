@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}功率区间 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>功率区间时间分布</h1>
+  <p class="muted">基于 Coggan 经典 7 区间模型,mFTP = {{ ftp }} W。</p>
+</header>
+
+<section class="panel">
+  {{ plot|safe }}
+</section>
+
+<section class="panel mt-lg">
+  <div class="panel-title">区间定义</div>
+  <table class="data-table">
+    <thead>
+      <tr><th>区间</th><th>% mFTP</th><th class="num">瓦数范围</th><th class="num">全部时间</th><th class="num">近 90 天</th></tr>
+    </thead>
+    <tbody>
+      {% for z in zones_meta %}
+      <tr>
+        <td>
+          <span class="zone-chip" style="background: {{ z.color }}"></span>
+          {{ z.name }}
+        </td>
+        <td>
+          {{ '%.0f' % (z.lo * 100) }}–{% if z.hi > 5 %}+{% else %}{{ '%.0f' % (z.hi * 100) }}{% endif %}%
+        </td>
+        <td class="num">
+          {{ (z.lo * ftp)|round|int }}–{% if z.hi > 5 %}+{% else %}{{ (z.hi * ftp)|round|int }}{% endif %} W
+        </td>
+        <td class="num">{{ '%.1f' % total_pct[z.name] }}%</td>
+        <td class="num">{{ '%.1f' % recent_pct[z.name] }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel mt-lg note">
+  <strong>使用建议</strong>
+  <ul>
+    <li><strong>两极化训练(Polarized Training)</strong>:多数车手最佳分布为 Z1–Z2 占约 80%、Z4 以上占 15–20%。如果 Z3(节奏)占比过大,通常意味着你"轻松日骑得太用力、艰难日又骑得不够"。</li>
+    <li>近 90 天的柱状显示<em>近期</em>分布,与全部时间对照可以看出训练周期的转变。</li>
+    <li>解读 Z1 时不要把台子热身也算进去——户外间歇之间的轻踩同样属于 Z1。</li>
+  </ul>
+</section>
+
+{% endblock %}

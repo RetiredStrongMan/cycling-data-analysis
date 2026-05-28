@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}训练负荷 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>训练负荷 · 表现管理图(PMC)</h1>
+  <p class="muted">CTL(体能)与 ATL(疲劳)的差值即为 TSB(状态)。</p>
+</header>
+
+<section class="grid grid-4">
+  <div class="metric-card accent-blue">
+    <div class="metric-label">CTL · 体能</div>
+    <div class="metric-value">{{ '%.1f' % summary.ctl }}</div>
+    <div class="metric-sub">42 天指数加权平均</div>
+  </div>
+  <div class="metric-card accent-orange">
+    <div class="metric-label">ATL · 疲劳</div>
+    <div class="metric-value">{{ '%.1f' % summary.atl }}</div>
+    <div class="metric-sub">7 天指数加权平均</div>
+  </div>
+  <div class="metric-card accent-green">
+    <div class="metric-label">TSB · 状态</div>
+    <div class="metric-value">{{ '%+.1f' % summary.tsb }}</div>
+    <div class="metric-sub">CTL − ATL</div>
+  </div>
+  <div class="metric-card accent-purple">
+    <div class="metric-label">所用 FTP</div>
+    <div class="metric-value">{{ summary.ftp }} <span class="metric-unit">W</span></div>
+    <div class="metric-sub">用于 TSS 计算</div>
+  </div>
+</section>
+
+<section class="panel mt-lg">
+  {{ plot|safe }}
+</section>
+
+<section class="panel mt-lg note">
+  <strong>TSB 解读</strong>
+  <ul>
+    <li><strong>+5 到 +15</strong>:充分减量,处于比赛巅峰状态。</li>
+    <li><strong>−10 到 +5</strong>:维持区间——常规训练状态。</li>
+    <li><strong>−10 到 −30</strong>:有效超量负荷,可在 1–3 周的训练块中维持。</li>
+    <li><strong>&lt; −30</strong>:深度疲劳,需要一周恢复期才能恢复高质量训练。</li>
+    <li>基础期目标:每月 CTL 增长 5–8 TSS/天;减量期保持平稳。</li>
+  </ul>
+</section>
+
+{% endblock %}

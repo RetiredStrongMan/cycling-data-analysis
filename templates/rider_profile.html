@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}车手画像 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>车手画像</h1>
+  <p class="muted">基于功率画像对你的车手类型(Phenotype)进行分类。</p>
+</header>
+
+<section class="grid grid-3">
+  <div class="panel hero">
+    <div class="panel-title">你的骑行类型</div>
+    <div class="hero-text">{{ profile.rider_type }}</div>
+    <div class="bar"><div class="bar-fill" style="width: {{ (profile.confidence*100)|round }}%"></div></div>
+    <div class="muted small">置信度 {{ (profile.confidence*100)|round }}%</div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Pmax / mFTP 比值</div>
+    <div class="big-text">{{ '%.1f' % profile.pmax_ftp_ratio }}×</div>
+    <div class="muted small">越高越偏冲刺型。典型范围 3.5–6.0。</div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">FRC / mFTP 比值</div>
+    <div class="big-text">{{ '%.2f' % profile.frc_ftp_ratio }}</div>
+    <div class="muted small">每瓦 FTP 对应的无氧储备(kJ)。典型范围 0.05–0.12。</div>
+  </div>
+</section>
+
+<section class="grid grid-2 mt-lg">
+  <div class="panel">
+    <div class="panel-title">功率画像(关键时长最佳功率)</div>
+    {{ sig_plot|safe }}
+  </div>
+  <div class="panel">
+    <div class="panel-title">耐力(60 分钟最佳 ÷ mFTP)</div>
+    {{ stamina_plot|safe }}
+  </div>
+</section>
+
+<section class="panel mt-lg">
+  <div class="panel-title">分类依据</div>
+  <ul>
+    {% for note in profile.notes %}<li>{{ note }}</li>{% endfor %}
+  </ul>
+</section>
+
+<section class="panel mt-lg note">
+  <strong>车手类型对照</strong>
+  <table class="data-table mt-sm">
+    <thead><tr><th>类型</th><th>特征</th><th>赛事强项</th></tr></thead>
+    <tbody>
+      <tr><td>冲刺型(Sprinter)</td><td>Pmax 高(&gt; mFTP 的 5 倍),FRC 高</td><td>大集团冲刺、绕圈赛攻击、短时爆发</td></tr>
+      <tr><td>追逐型(Pursuiter)</td><td>FRC 高,1–5 分钟功率突出</td><td>突围、起伏路段、短距离个人计时赛</td></tr>
+      <tr><td>计时赛型(Time Trialist)</td><td>Pmax 低、FRC 低、耐力强</td><td>40 公里以上 TT、稳态长爬坡</td></tr>
+      <tr><td>全能型(All-Rounder)</td><td>各项指标均衡</td><td>多日赛、古典赛</td></tr>
+      <tr><td>爬坡型(Climber)</td><td>瓦特/公斤高、耐力强</td><td>山地赛段、长爬坡</td></tr>
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

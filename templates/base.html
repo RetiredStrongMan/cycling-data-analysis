@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Wilson 的 AI 教练{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="{{ url_for('dashboard') }}" class="logo">
+      <span class="logo-mark">●</span> Wilson 的 AI 教练
+    </a>
+    <ul class="nav-links">
+      {% for label, endpoint in nav_items %}
+        <li><a href="{{ url_for(endpoint) }}"
+               class="{{ 'active' if request.endpoint == endpoint else '' }}">{{ label }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</nav>
+<main class="main">
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">
+  <span>本地分析 · 数据截至上次同步</span>
+  <span class="muted">由 Strava API 提供 · 参考 WKO5 体系指标</span>
+</footer>
+</body>
+</html>

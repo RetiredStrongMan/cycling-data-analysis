@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}{{ info.name }} · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <a class="link" href="{{ url_for('rides_list') }}">← 返回骑行列表</a>
+  <h1>{{ info.name }}</h1>
+  <p class="muted">
+    {{ info.start_date_local[:16] if info.start_date_local else '' }} ·
+    {{ '%.1f' % (info.distance / 1000) }} 公里 ·
+    {{ info.moving_time // 3600 }}小时{{ '%02d' % ((info.moving_time % 3600) // 60) }}分 ·
+    累计爬升 {{ info.total_elevation_gain|round|int }} 米
+  </p>
+</header>
+
+<section class="grid grid-4">
+  <div class="metric-card accent-orange">
+    <div class="metric-label">平均 / 标准化功率</div>
+    <div class="metric-value">{{ info.average_watts|round|int if info.average_watts else '—' }} / {{ np_w|round|int if np_w == np_w else '—' }} <span class="metric-unit">W</span></div>
+    <div class="metric-sub">Avg / NP</div>
+  </div>
+  <div class="metric-card accent-blue">
+    <div class="metric-label">IF · 强度系数</div>
+    <div class="metric-value">{{ '%.2f' % intensity_factor if intensity_factor else '—' }}</div>
+    <div class="metric-sub">NP ÷ mFTP ({{ ftp }} W)</div>
+  </div>
+  <div class="metric-card accent-green">
+    <div class="metric-label">TSS · 训练应激分数</div>
+    <div class="metric-value">{{ tss|round|int if tss == tss else '—' }}</div>
+    <div class="metric-sub">本次骑行的应激量</div>
+  </div>
+  <div class="metric-card accent-purple">
+    <div class="metric-label">W′ 最低点</div>
+    <div class="metric-value">
+      {% if wbal_min_kj is not none %}{{ '%.1f' % wbal_min_kj }} <span class="metric-unit">kJ</span>{% else %}—{% endif %}
+    </div>
+    <div class="metric-sub">
+      {% if wbal_min_pct is not none %}最低时还剩 {{ '%.0f' % wbal_min_pct }}% 的 FRC{% else %}本次未追踪 FRC{% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="panel mt-lg">
+  <div class="panel-title">功率 · W′ 余量 · 心率</div>
+  {{ plot|safe }}
+</section>
+
+<section class="panel mt-lg">
+  <div class="panel-title">功率区间分布</div>
+  {{ zone_plot|safe }}
+  <table class="data-table mt-sm">
+    <thead><tr><th>区间</th><th class="num">秒数</th><th class="num">占比</th></tr></thead>
+    <tbody>
+      {% set total = tiz.values()|sum or 1 %}
+      {% for z in zones_meta %}
+      {% set s = tiz.get(z.name, 0) %}
+      <tr>
+        <td><span class="zone-chip" style="background: {{ z.color }}"></span> {{ z.name }}</td>
+        <td class="num">{{ fmt_secs(s) }}</td>
+        <td class="num">{{ '%.1f' % (s / total * 100) }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel mt-lg note">
+  <strong>W′ 余量(W′bal / DFRC)解读</strong>
+  <ul>
+    <li>蓝色曲线显示骑行过程中你<em>每一秒</em>剩余的无氧储备。开始时是满的 FRC ≈ {{ '%.1f' % (wbal_min_kj or 0) }} kJ;每次冲过 mFTP 都会下降,放松时会回升。</li>
+    <li>降到 0 kJ 不代表你必须停下,而是说明你不能再继续在 FTP 之上做功——否则只能减速。</li>
+    <li>比赛中:统计 W′ 余量跌破 FRC 20% 的次数,就是你在最终决定时刻之前能"划"出的火柴数。</li>
+  </ul>
+</section>
+
+{% endblock %}

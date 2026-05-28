@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}功率-时间曲线 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>功率-时间曲线(PDC)</h1>
+  <p class="muted">你所有骑行中各时长的最佳平均功率,使用 Monod-Scherrer 临界功率模型拟合。</p>
+</header>
+
+<section class="grid grid-4">
+  <div class="metric-card accent-orange">
+    <div class="metric-label">mFTP</div>
+    <div class="metric-value">{{ m.mftp|round|int }} <span class="metric-unit">W</span></div>
+    <div class="metric-sub">由临界功率(CP)× 0.97 推得</div>
+  </div>
+  <div class="metric-card accent-blue">
+    <div class="metric-label">FRC</div>
+    <div class="metric-value">{{ '%.1f' % m.frc_kj }} <span class="metric-unit">kJ</span></div>
+    <div class="metric-sub">W′ 无氧做功能力</div>
+  </div>
+  <div class="metric-card accent-green">
+    <div class="metric-label">TTE</div>
+    <div class="metric-value">{{ fmt_secs(m.tte_s) }}</div>
+    <div class="metric-sub">在 mFTP 下可维持的时长</div>
+  </div>
+  <div class="metric-card accent-purple">
+    <div class="metric-label">拟合优度 R²</div>
+    <div class="metric-value">{{ '%.3f' % m.fit_r2 }}</div>
+    <div class="metric-sub">使用了 {{ m.fit_points|length }} 个点进行 CP 拟合</div>
+  </div>
+</section>
+
+<section class="panel mt-lg">
+  {{ plot|safe }}
+</section>
+
+<section class="panel mt-lg">
+  <div class="panel-title">关键时长功率</div>
+  <table class="data-table">
+    <thead><tr><th>时长</th><th class="num">最佳功率 (W)</th><th class="num">% mFTP</th><th>对应骑行</th></tr></thead>
+    <tbody>
+      {% for r in key_table %}
+      <tr>
+        <td>{{ r.label }}</td>
+        <td class="num">{{ r.watts }}</td>
+        <td class="num">{{ '%.0f' % r.pct_ftp }}%</td>
+        <td><a class="link" href="{{ url_for('ride_detail', activity_id=r.activity_id) }}">{{ r.activity_name }}</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel mt-lg note">
+  <strong>如何解读这张图</strong>
+  <ul>
+    <li><strong>实测最佳平均功率</strong>(橙色)为你各时长曾经达到过的最高平均瓦数,从右向左应当单调上升。</li>
+    <li><strong>模型 CP 曲线</strong>(蓝色虚线)是在 2–20 分钟区间内拟合的临界功率模型。超过 20 分钟模型会偏低,因为它没有纳入疲劳因素。</li>
+    <li>拟合优度 R² 较低(&lt; 0.90)通常意味着你近期缺少全力的 5 分钟和 20 分钟测试。补做一次最大测试就能刷新曲线。</li>
+  </ul>
+</section>
+
+{% endblock %}

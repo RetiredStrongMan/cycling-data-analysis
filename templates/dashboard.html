@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}总览 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>状态总览</h1>
+  {% if stats.date_range[0] %}
+    <p class="muted">{{ stats.date_range[0] }} → {{ stats.date_range[1] }} · 共 {{ stats.total_rides }} 次骑行</p>
+  {% endif %}
+</header>
+
+<section class="grid grid-4">
+  <div class="metric-card accent-orange">
+    <div class="metric-label">mFTP（模型 FTP）</div>
+    <div class="metric-value">{{ ftp }} <span class="metric-unit">W</span></div>
+    <div class="metric-sub">模型化功能阈值功率</div>
+  </div>
+  <div class="metric-card accent-blue">
+    <div class="metric-label">FRC（功能储备能力）</div>
+    <div class="metric-value">{{ '%.1f' % frc }} <span class="metric-unit">kJ</span></div>
+    <div class="metric-sub">阈值之上的无氧做功能力</div>
+  </div>
+  <div class="metric-card accent-green">
+    <div class="metric-label">TTE（力竭时间)</div>
+    <div class="metric-value">{{ tte_label }}</div>
+    <div class="metric-sub">在 mFTP 下可维持的时长</div>
+  </div>
+  <div class="metric-card accent-purple">
+    <div class="metric-label">Pmax（峰值功率）</div>
+    <div class="metric-value">{{ pmax }} <span class="metric-unit">W</span></div>
+    <div class="metric-sub">神经肌肉峰值输出</div>
+  </div>
+</section>
+
+<section class="grid grid-3 mt-lg">
+  <div class="panel">
+    <div class="panel-title">车手类型</div>
+    <div class="big-text">{{ profile.rider_type }}</div>
+    <div class="bar">
+      <div class="bar-fill" style="width: {{ (profile.confidence * 100)|round }}%"></div>
+    </div>
+    <div class="muted small">置信度 {{ (profile.confidence * 100)|round }}%</div>
+    <a class="link mt-sm" href="{{ url_for('rider_profile') }}">查看详细画像 →</a>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">耐力(Stamina)</div>
+    <div class="big-text">{{ '%.0f' % stamina if stamina == stamina else '—' }}<span class="metric-unit">%</span></div>
+    <div class="muted small">60 分钟最佳功率 ÷ mFTP。数值越高,抗疲劳能力越强。</div>
+    <div class="bar mt-sm">
+      <div class="bar-fill" style="width: {{ stamina|round if stamina == stamina else 0 }}%"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">当前状态</div>
+    <table class="kv">
+      <tr><th>CTL <span class="muted">(体能)</span></th><td>{{ '%.1f' % ctl }}</td></tr>
+      <tr><th>ATL <span class="muted">(疲劳)</span></th><td>{{ '%.1f' % atl }}</td></tr>
+      <tr><th>TSB <span class="muted">(状态)</span></th><td class="{{ 'pos' if tsb > 0 else 'neg' }}">{{ '%+.1f' % tsb }}</td></tr>
+    </table>
+    <a class="link mt-sm" href="{{ url_for('training_load') }}">查看训练负荷 →</a>
+  </div>
+</section>
+
+<section class="grid grid-2 mt-lg">
+  <div class="panel">
+    <div class="panel-title">最近 28 天</div>
+    <table class="kv">
+      <tr><th>骑行次数</th><td>{{ stats.rides_28d }}</td></tr>
+      <tr><th>累计小时</th><td>{{ '%.1f' % stats.hours_28d }}</td></tr>
+      <tr><th>累计公里</th><td>{{ '%.0f' % stats.km_28d }}</td></tr>
+    </table>
+  </div>
+  <div class="panel">
+    <div class="panel-title">总计</div>
+    <table class="kv">
+      <tr><th>骑行次数</th><td>{{ stats.total_rides }}</td></tr>
+      <tr><th>累计小时</th><td>{{ '%.0f' % stats.total_hours }}</td></tr>
+      <tr><th>累计公里</th><td>{{ '%.0f' % stats.total_km }}</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="mt-lg">
+  <p class="muted">
+    快捷入口 →
+    <a href="{{ url_for('power_curve') }}">功率-时间曲线</a> ·
+    <a href="{{ url_for('zones') }}">功率区间分布</a> ·
+    <a href="{{ url_for('rides_list') }}">骑行记录</a> ·
+    <a href="{{ url_for('race_strategy') }}">比赛配速</a>
+  </p>
+</section>
+
+{% endblock %}

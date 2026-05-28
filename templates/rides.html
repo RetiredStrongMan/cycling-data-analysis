@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}骑行记录 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>骑行记录</h1>
+  <p class="muted">共 {{ rides|length }} 次骑行。点击任意一行查看该次骑行的详细分析。</p>
+</header>
+
+<section class="panel">
+  <table class="data-table rides-table">
+    <thead>
+      <tr>
+        <th>日期</th>
+        <th>名称</th>
+        <th class="num">公里</th>
+        <th class="num">时长</th>
+        <th class="num">爬升 (m)</th>
+        <th class="num">平均 W</th>
+        <th class="num">NP</th>
+        <th class="num">平均心率</th>
+        <th>功率来源</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rides %}
+      <tr onclick="window.location='{{ url_for('ride_detail', activity_id=r.id) }}'">
+        <td class="muted small nowrap">{{ r.start_date_local.strftime('%Y-%m-%d %H:%M') if r.start_date_local else '' }}</td>
+        <td>{{ r.name }}</td>
+        <td class="num">{{ '%.1f' % (r.distance / 1000) if r.distance else '' }}</td>
+        <td class="num nowrap">{{ (r.moving_time // 3600) }}:{{ '%02d' % ((r.moving_time % 3600) // 60) }}</td>
+        <td class="num">{{ r.total_elevation_gain|round|int if r.total_elevation_gain else '' }}</td>
+        <td class="num">{{ r.average_watts|round|int if r.average_watts else '—' }}</td>
+        <td class="num">{{ r.weighted_average_watts if r.weighted_average_watts else '—' }}</td>
+        <td class="num">{{ r.average_heartrate|round|int if r.average_heartrate else '—' }}</td>
+        <td>{% if r.device_watts == 1 %}<span class="tag tag-green">功率计</span>{% else %}<span class="tag tag-gray">估算</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% endblock %}

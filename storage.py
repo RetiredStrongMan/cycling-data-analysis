@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS users (
     first_name           TEXT,
     last_name            TEXT,
     profile_image_url    TEXT,
+    sex                  TEXT,              -- 'M' or 'F' (from Strava)
+    age                  INTEGER,           -- user-provided (Strava doesn't expose DOB)
     weight_kg            REAL,
     refresh_token        TEXT NOT NULL,
     access_token         TEXT,
@@ -118,7 +120,25 @@ def connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     conn.execute("PRAGMA foreign_keys = ON")
+    _ensure_columns(conn)
     return conn
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Idempotent ALTER TABLE for columns added after initial schema.
+
+    SQLite has no `ADD COLUMN IF NOT EXISTS`, so we introspect pragma table_info
+    and add anything missing. Safe to run on every connect().
+    """
+    needed = {
+        "users": [("sex", "TEXT"), ("age", "INTEGER")],
+    }
+    for table, cols in needed.items():
+        existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, sqltype in cols:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sqltype}")
+    conn.commit()
 
 
 def streams_dir_for(user_id: int) -> Path:
@@ -140,6 +160,8 @@ class User:
     first_name: str | None
     last_name: str | None
     profile_image_url: str | None
+    sex: str | None              # 'M' / 'F' from Strava
+    age: int | None              # user-provided
     weight_kg: float | None
     refresh_token: str
     access_token: str | None
@@ -190,27 +212,35 @@ def upsert_user_from_oauth(
     athlete_id = int(athlete["id"])
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     existing = get_user_by_athlete_id(conn, athlete_id)
+    sex = athlete.get("sex")
+    if sex not in ("M", "F"):
+        sex = None
+    weight = athlete.get("weight")  # kg or None
     if existing:
+        # On re-sign-in, update everything Strava knows about EXCEPT fields the
+        # user might have customised locally (weight — only refresh if it's not
+        # locally set; sex — Strava is authoritative).
+        update_weight = weight if existing.weight_kg is None else existing.weight_kg
         conn.execute(
             "UPDATE users SET refresh_token = ?, access_token = ?, "
             "access_token_expires = ?, first_name = ?, last_name = ?, "
-            "profile_image_url = ?, weight_kg = ?, deauthorized_at = NULL "
-            "WHERE id = ?",
+            "profile_image_url = ?, sex = COALESCE(?, sex), weight_kg = ?, "
+            "deauthorized_at = NULL WHERE id = ?",
             (refresh_token, access_token, access_token_expires,
              athlete.get("firstname"), athlete.get("lastname"),
              athlete.get("profile") or athlete.get("profile_medium"),
-             athlete.get("weight"), existing.id),
+             sex, update_weight, existing.id),
         )
         conn.commit()
         return get_user(conn, existing.id)  # type: ignore[return-value]
     cur = conn.execute(
         "INSERT INTO users (strava_athlete_id, email, first_name, last_name, "
-        "profile_image_url, weight_kg, refresh_token, access_token, "
-        "access_token_expires, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "profile_image_url, sex, weight_kg, refresh_token, access_token, "
+        "access_token_expires, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (athlete_id, athlete.get("email"),
          athlete.get("firstname"), athlete.get("lastname"),
          athlete.get("profile") or athlete.get("profile_medium"),
-         athlete.get("weight"), refresh_token, access_token,
+         sex, weight, refresh_token, access_token,
          access_token_expires, now_iso),
     )
     conn.commit()
@@ -250,6 +280,26 @@ def update_backfill_state(
 
 def set_user_weight(conn: sqlite3.Connection, user_id: int, weight_kg: float) -> None:
     conn.execute("UPDATE users SET weight_kg = ? WHERE id = ?", (weight_kg, user_id))
+    conn.commit()
+
+
+def set_user_demographics(
+    conn: sqlite3.Connection, user_id: int,
+    sex: str | None = None, age: int | None = None,
+    weight_kg: float | None = None,
+) -> None:
+    """Update any subset of {sex, age, weight_kg} on the user record."""
+    fields, vals = [], []
+    if sex is not None and sex in ("M", "F"):
+        fields.append("sex = ?"); vals.append(sex)
+    if age is not None:
+        fields.append("age = ?"); vals.append(int(age))
+    if weight_kg is not None:
+        fields.append("weight_kg = ?"); vals.append(float(weight_kg))
+    if not fields:
+        return
+    vals.append(user_id)
+    conn.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", vals)
     conn.commit()
 
 

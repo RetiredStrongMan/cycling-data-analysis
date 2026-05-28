@@ -9,10 +9,10 @@
 
 <form method="post" action="{{ url_for('race_strategy') }}" enctype="multipart/form-data" class="panel form-row">
   <label>
-    性别
-    <select name="gender">
-      <option value="male"   {% if gender == 'male' %}selected{% endif %}>男</option>
-      <option value="female" {% if gender == 'female' %}selected{% endif %}>女</option>
+    性别{% if user_sex_from_strava %} <span class="muted small">· 来自 Strava</span>{% endif %}
+    <select name="sex">
+      <option value="M" {% if gender == 'male' %}selected{% endif %}>男</option>
+      <option value="F" {% if gender == 'female' %}selected{% endif %}>女</option>
     </select>
   </label>
   <label>
@@ -20,7 +20,7 @@
     <input type="number" name="age" value="{{ age }}" min="14" max="90" step="1">
   </label>
   <label>
-    体重(kg)
+    体重(kg){% if user_weight_from_strava %} <span class="muted small">· 来自 Strava</span>{% endif %}
     <input type="number" name="weight_kg" value="{{ '%.0f' % weight_kg }}" min="40" max="120" step="0.5">
   </label>
   <label>

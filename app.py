@@ -494,18 +494,33 @@ def race_strategy():
     user = g.user
     pd_m = _pd_model_cache(user.id)
 
+    # Pull demographics from the user record first; fall back to form values
+    # (which include defaults if neither is set).
     distance_km = float(request.values.get("distance_km") or 40)
-    weight_kg = float(request.values.get("weight_kg") or user.weight_kg or 70)
-    gender = request.values.get("gender") or "male"
-    if gender not in ("male", "female"):
-        gender = "male"
-    age = int(request.values.get("age") or 35)
+    weight_kg = float(request.values.get("weight_kg")
+                       or (user.weight_kg if user.weight_kg else 70))
+    sex_raw = request.values.get("sex")  # 'M' / 'F' from form
+    if sex_raw not in ("M", "F"):
+        sex_raw = user.sex if user.sex in ("M", "F") else "M"
+    gender = "female" if sex_raw == "F" else "male"
+    age = int(request.values.get("age")
+              or (user.age if user.age else 35))
     race_type = request.values.get("race_type") or "road_race"
     if race_type not in CDA_BY_RACE_TYPE:
         race_type = "road_race"
     goal = request.values.get("goal") or "peloton"
     if goal not in INTENSITY_BY_GOAL:
         goal = "peloton"
+
+    # Persist any user-edited demographics so they stick across visits.
+    if request.method == "POST":
+        conn = storage.connect()
+        try:
+            storage.set_user_demographics(
+                conn, user.id, sex=sex_raw, age=age, weight_kg=weight_kg,
+            )
+        finally:
+            conn.close()
 
     # Derive the technical parameters from the user-friendly inputs.
     cda = CDA_BY_RACE_TYPE[race_type][gender]
@@ -590,6 +605,8 @@ def race_strategy():
         distance_km=distance_km, weight_kg=weight_kg,
         gender=gender, age=age, race_type=race_type, goal=goal,
         goal_label=GOAL_LABEL[goal], goal_advice=GOAL_ADVICE[goal],
+        user_sex_from_strava=user.sex in ("M", "F"),
+        user_weight_from_strava=user.weight_kg is not None,
         plot=profile_plot_html, fmt_secs=fmt_secs,
     )
 
@@ -597,9 +614,23 @@ def race_strategy():
 @app.route("/account/refresh", methods=["POST"])
 @auth.login_required
 def account_refresh():
-    """Trigger an incremental sync for the current user, then go back."""
+    """Trigger an incremental sync + refresh of athlete profile (sex/weight)."""
     import sync as sync_mod
+    from strava import StravaClient
     try:
+        # Pull the latest /athlete to pick up changes to weight / sex on Strava.
+        client = StravaClient.for_user(g.user.id)
+        try:
+            athlete = client.get("/athlete")
+            sex = athlete.get("sex") if athlete.get("sex") in ("M", "F") else None
+            weight = athlete.get("weight")
+            storage.set_user_demographics(
+                client.conn, g.user.id,
+                sex=sex,
+                weight_kg=weight if weight else None,
+            )
+        finally:
+            client.conn.close()
         sync_mod.run_for_user(g.user.id)
         invalidate_caches(g.user.id)
     except Exception as e:

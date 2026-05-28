@@ -1,0 +1,35 @@
+.git
+.gitignore
+.github
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+
+# Local data + reports (server uses Fly volume mounted at /app/data)
+data
+reports
+streams
+*.db
+*.db-journal
+
+# Local config (Fly secrets / [env] in fly.toml take over)
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea
+.vscode
+.DS_Store
+
+# Docs / planning files we don't need in the image
+MULTIUSER_DESIGN.md
+README.md
+*.md
+LICENSE
+
+# Test artifacts / OS junk
+nohup.out
+*.log

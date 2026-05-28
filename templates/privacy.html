@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}隐私政策 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>隐私政策</h1>
+  <p class="muted">最后更新:2026 年 5 月</p>
+</header>
+
+<section class="panel">
+  <h3>1. 我们收集什么</h3>
+  <p>当你使用 Strava 账号登录后,本服务会从 Strava API 读取并存储以下数据:</p>
+  <ul>
+    <li>个人资料:姓名、Strava 用户 ID、头像、性别、体重(如果你在 Strava 中设置过)、邮箱。</li>
+    <li>骑行活动数据:日期、距离、时长、爬升、配速、平均/最大功率、心率、踏频。</li>
+    <li>每次骑行的逐秒数据流:时间、距离、坐标、海拔、速度、心率、踏频、功率、温度。</li>
+    <li>用于持续访问 Strava 的 OAuth refresh token 与 access token。</li>
+  </ul>
+  <p>除了你在分析页面手动输入的<strong>年龄</strong>之外,本服务不收集任何其他个人信息。</p>
+
+  <h3>2. 数据如何使用</h3>
+  <ul>
+    <li>计算并展示你的功率画像、训练负荷、车手类型与比赛策略——仅供你本人查看。</li>
+    <li>调用 Strava API 同步新的骑行数据。</li>
+  </ul>
+  <p>我们<strong>不会</strong>:出售、分享或转让你的数据给任何第三方;用你的数据训练机器学习模型;在未经你同意的情况下公开展示你的活动。</p>
+
+  <h3>3. 数据存储</h3>
+  <p>所有数据存放在我们部署在 Fly.io 服务器上的 SQLite 数据库与文件存储中。该服务器位于香港(hkg)区域,数据不会同步到其他区域。</p>
+
+  <h3>4. 数据删除</h3>
+  <p>你可以随时通过下列任一方式删除你的全部数据:</p>
+  <ul>
+    <li>登录后进入 <a class="link" href="{{ url_for('account_page') }}">账号设置</a> 页面,点击"删除我的账号"。本服务会立即:
+      <ol>
+        <li>调用 Strava 的 <code>/oauth/deauthorize</code> 撤销本应用的访问权限。</li>
+        <li>从服务器删除你的所有骑行数据、数据流文件、用户资料、登录会话。</li>
+      </ol>
+    </li>
+    <li>在 Strava 应用列表中(<a class="link" href="https://www.strava.com/settings/apps" target="_blank">strava.com/settings/apps</a>)取消授权。Strava 会通过 webhook 通知本服务,我们会在 24 小时内自动删除你的数据。</li>
+  </ul>
+
+  <h3>5. Cookie</h3>
+  <p>本服务仅使用一个会话 cookie(<code>coach_sid</code>),用于记住你的登录状态。该 cookie 仅在 HTTPS 下传输、对 JavaScript 不可见(HttpOnly)、有效期 30 天。不使用任何第三方 / 分析 / 广告 cookie。</p>
+
+  <h3>6. 第三方</h3>
+  <p>本服务通过 Strava API v3 获取你的活动数据,你在登录时所授予的权限决定了我们能读取的内容。请同时阅读 <a class="link" href="https://www.strava.com/legal/privacy" target="_blank">Strava 隐私政策</a>。</p>
+
+  <h3>7. 联系</h3>
+  <p>关于本政策的疑问可以通过 <a class="link" href="https://github.com/RetiredStrongMan/cycling-data-analysis/issues" target="_blank">GitHub Issues</a> 联系。</p>
+</section>
+
+{% endblock %}

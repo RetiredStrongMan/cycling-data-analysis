@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}服务条款 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>服务条款</h1>
+  <p class="muted">最后更新:2026 年 5 月</p>
+</header>
+
+<section class="panel">
+  <h3>1. 服务性质</h3>
+  <p>本服务(Wilson 的 AI 教练)由个人维护,基于 Strava 公开 API 提供骑行数据分析。<strong>按"现状"提供,不附带任何保证。</strong></p>
+
+  <h3>2. 你的权利与责任</h3>
+  <ul>
+    <li>你必须拥有有效的 Strava 账号才能使用本服务。</li>
+    <li>你授予本服务读取你 Strava 活动数据的权限,可随时在 Strava 应用设置中撤销。</li>
+    <li>你不得通过本服务对 Strava 发起大规模请求、违反 Strava API 协议、或试图获取其他用户的数据。</li>
+  </ul>
+
+  <h3>3. 训练建议免责</h3>
+  <p>本服务展示的 mFTP、FRC、TTE、训练负荷、比赛策略与配速建议<strong>仅供参考</strong>。它们基于公开的运动生理学模型(Coggan PD model、Skiba W′bal 等),不是医疗建议,也不能替代有资质的教练或医师。</p>
+  <ul>
+    <li>开始任何新的训练强度之前请咨询医生,尤其当你有心血管或代谢性疾病时。</li>
+    <li>本服务不对因依赖配速建议导致的过度训练、运动损伤、医疗事件或比赛失利承担责任。</li>
+  </ul>
+
+  <h3>4. 数据准确性</h3>
+  <p>本服务的所有计算依赖你 Strava 中的功率/心率数据质量。错误的功率计校准、虚拟骑行的估算功率、缺失的心率带都会影响结果。WKO5 算法的精确实现是 TrainingPeaks 的专有商业产品;本服务实现的是已公开发表的近似版本。</p>
+
+  <h3>5. 服务可用性</h3>
+  <p>本服务可能因维护、升级、Strava API 变更、托管商问题而中断。我们尽力保持稳定但不承诺任何 SLA。</p>
+
+  <h3>6. 不收费</h3>
+  <p>本服务目前免费使用,不存在订阅、付费墙或广告。如未来引入付费功能,会在生效前提前公告并允许你导出/删除数据。</p>
+
+  <h3>7. 修改条款</h3>
+  <p>条款可能更新。重大变更会在主页通知 30 天后生效。</p>
+
+  <h3>8. Strava 商标</h3>
+  <p>本服务在 Strava 提供的品牌指南下使用 Strava 名称与"Connect with Strava"按钮,但与 Strava 公司无关、未获其背书。</p>
+
+  <h3>9. 适用法律</h3>
+  <p>本条款及与本服务有关的争议适用中华人民共和国法律。</p>
+
+  <h3>10. 联系</h3>
+  <p>关于本条款的疑问可以通过 <a class="link" href="https://github.com/RetiredStrongMan/cycling-data-analysis/issues" target="_blank">GitHub Issues</a> 联系。</p>
+</section>
+
+{% endblock %}

@@ -10,7 +10,7 @@
 
     <form action="{{ url_for('auth.login_start') }}" method="post" class="login-form">
       <button type="submit" class="btn btn-strava">
-        使用 Strava 登录
+        <span style="font-weight:400">Connect with</span> STRAVA
       </button>
     </form>
 
@@ -19,7 +19,9 @@
       和 <strong>查看个人资料</strong>(profile:read_all)两项权限,否则将无法读取你的完整骑行数据。
     </p>
     <p class="muted small">
-      数据全部存储在本地服务器,不会与第三方共享。注销或在 Strava 取消授权后,你的数据会被删除。
+      登录即表示你同意我们的 <a class="link" href="{{ url_for('privacy') }}">隐私政策</a>
+      和 <a class="link" href="{{ url_for('terms') }}">服务条款</a>。
+      可以随时在账号设置中删除全部数据,或在 Strava 取消授权。
     </p>
   </div>
 </div>

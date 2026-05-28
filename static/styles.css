@@ -388,6 +388,39 @@ a:hover { text-decoration: underline; }
   padding: 16px 24px 24px;
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   font-size: 12px;
   color: var(--muted);
+}
+.footer-link {
+  color: var(--muted);
+}
+.footer-link:hover {
+  color: var(--text);
+}
+.powered-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.powered-strava {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  text-decoration: none;
+}
+.powered-strava:hover { text-decoration: none; }
+.powered-strava-text {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.powered-strava-logo {
+  color: var(--orange);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.6px;
 }

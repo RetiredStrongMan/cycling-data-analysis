@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}账号设置 · Wilson 的 AI 教练{% endblock %}
+{% block content %}
+
+<header class="page-head">
+  <h1>账号设置</h1>
+</header>
+
+<section class="grid grid-2">
+  <div class="panel">
+    <div class="panel-title">个人资料</div>
+    <table class="kv">
+      <tr><th>姓名</th><td>{{ user.display_name }}</td></tr>
+      <tr><th>Strava 运动员 ID</th><td>{{ user.strava_athlete_id }}</td></tr>
+      <tr><th>邮箱</th><td>{{ user.email or '—' }}</td></tr>
+      <tr><th>性别</th><td>{{ '男' if user.sex == 'M' else ('女' if user.sex == 'F' else '—') }}</td></tr>
+      <tr><th>体重</th><td>{{ ('%.1f kg' % user.weight_kg) if user.weight_kg else '—' }}</td></tr>
+      <tr><th>注册时间</th><td>{{ user.created_at[:10] }}</td></tr>
+      <tr><th>最近同步</th><td>{{ user.last_sync_at[:16] if user.last_sync_at else '—' }}</td></tr>
+    </table>
+    <p class="muted small mt-sm">
+      姓名 / 性别 / 体重在每次同步时从 Strava 自动更新。
+      想修改请到 <a class="link" href="https://www.strava.com/settings/profile" target="_blank">Strava 个人资料</a>。
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">数据同步状态</div>
+    <table class="kv">
+      <tr><th>状态</th><td>
+        {% if user.backfill_state == 'done' %}<span class="tag tag-green">已完成</span>
+        {% elif user.backfill_state == 'running' %}<span class="tag tag-orange">同步中</span>
+        {% elif user.backfill_state == 'failed' %}<span class="tag tag-red">失败</span>
+        {% else %}<span class="tag tag-gray">待开始</span>{% endif %}
+      </td></tr>
+      <tr><th>已抓取</th><td>{{ user.backfill_progress }} / {{ user.backfill_total or '—' }}</td></tr>
+    </table>
+    <div class="mt-sm">
+      <form action="{{ url_for('account_refresh') }}" method="post" style="display:inline">
+        <button type="submit" class="btn">同步最新骑行</button>
+      </form>
+    </div>
+
+    <div class="panel-title mt-lg">Strava API 速率额度</div>
+    <table class="kv">
+      <tr><th>15 分钟内</th><td>{{ rate_snapshot.usage_15min }} / {{ rate_snapshot.limit_15min }}</td></tr>
+      <tr><th>当日</th><td>{{ rate_snapshot.usage_daily }} / {{ rate_snapshot.limit_daily }}</td></tr>
+      <tr><th>15 分钟重置</th><td>{{ rate_snapshot.window_15_resets_in }} 秒后</td></tr>
+    </table>
+    <p class="muted small mt-sm">所有用户共享这一额度——非高峰时段做大量同步更顺畅。</p>
+  </div>
+</section>
+
+<section class="panel mt-lg" style="border-color:#f5c2bd;background:#fdfafa">
+  <div class="panel-title" style="color:#c62828">⚠ 删除账号</div>
+  <p>这个操作不可撤销。点击后会立即:</p>
+  <ol>
+    <li>在 Strava 撤销本应用的访问权限(<code>POST /oauth/deauthorize</code>)。</li>
+    <li>从服务器删除你的所有骑行数据、数据流文件、用户资料、登录会话。</li>
+  </ol>
+  <p>之后想再用本服务,需要重新走 Strava 授权流程,并重新执行历史数据回填。</p>
+  <form action="{{ url_for('account_delete') }}" method="post"
+        onsubmit="return confirm('确认要永久删除全部数据?此操作不可恢复。');">
+    <button type="submit" class="btn" style="background:#c62828">永久删除我的账号</button>
+  </form>
+</section>
+
+{% endblock %}

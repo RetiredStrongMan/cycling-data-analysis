@@ -19,7 +19,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 from dotenv import load_dotenv
-from flask import Flask, abort, g, redirect, render_template, request, url_for
+from flask import Flask, abort, g, jsonify, redirect, render_template, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
 import rate_limit
@@ -34,10 +35,16 @@ load_dotenv(ROOT / ".env")
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(32)
+# Behind Fly's edge proxy we receive HTTPS but the request appears as HTTP to
+# the WSGI app. ProxyFix reads X-Forwarded-Proto so url_for(_external=True)
+# returns https:// URLs (required for OAuth redirect_uri and secure cookies).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_for=1)
+app.config["PREFERRED_URL_SCHEME"] = "https" if os.environ.get("SESSION_COOKIE_SECURE") == "1" else "http"
 # In production (HTTPS), set SESSION_COOKIE_SECURE=1 in the environment.
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("SESSION_COOKIE_SECURE") == "1"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # 25 MB GPX upload cap
 app.jinja_env.globals.update(zip=zip, enumerate=enumerate)
 
 auth.init_app(app)
@@ -94,6 +101,32 @@ def index():
     if auth.current_user():
         return redirect(url_for("dashboard"))
     return redirect(url_for("auth.login"))
+
+
+# ----- Public pages (no auth required) -----
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+def terms():
+    return render_template("tos.html")
+
+
+@app.route("/healthz")
+def healthz():
+    """Cheap liveness probe for Fly's /health checks. Touches the DB so a
+    half-broken process (e.g. missing volume) actually fails."""
+    try:
+        conn = storage.connect()
+        conn.execute("SELECT 1").fetchone()
+        conn.close()
+        return "ok", 200
+    except Exception as e:
+        app.logger.exception("healthz failed: %s", e)
+        return f"db error: {e}", 503
 
 
 # =====================================================================
@@ -703,6 +736,61 @@ def backfill_retry():
         conn.close()
     worker.submit_backfill(g.user.id)
     return redirect(url_for("backfilling"))
+
+
+@app.route("/account")
+@auth.login_required
+def account_page():
+    user = g.user
+    return render_template("account.html", user=user,
+                           rate_snapshot=rate_limit.GLOBAL.snapshot())
+
+
+@app.route("/account/delete", methods=["POST"])
+@auth.login_required
+def account_delete():
+    """Delete the user, all their data, and revoke at Strava.
+
+    Per Strava ToS we must (a) stop using their access tokens immediately,
+    (b) delete the user's activity data within 24h. We do both inline here.
+    Idempotent: re-clicking does nothing if the user is already gone.
+    """
+    import shutil
+    user = g.user
+    user_id = user.id
+    # 1. Deauthorize at Strava (best-effort; ignore failures so we still wipe locally)
+    try:
+        from strava import StravaClient
+        import requests
+        client = StravaClient.for_user(user_id)
+        try:
+            requests.post(
+                "https://www.strava.com/oauth/deauthorize",
+                headers={"Authorization": f"Bearer {client.access_token}"},
+                timeout=15,
+            )
+        finally:
+            client.conn.close()
+    except Exception:
+        app.logger.exception("strava deauthorize failed for user %s", user_id)
+
+    # 2. Delete activities + sessions (ON DELETE CASCADE) and the user row
+    conn = storage.connect()
+    try:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 3. Delete per-user stream files on disk
+    streams_dir = storage.STREAMS_DIR / str(user_id)
+    if streams_dir.exists():
+        shutil.rmtree(streams_dir, ignore_errors=True)
+
+    invalidate_caches(user_id)
+    response = redirect(url_for("auth.login"))
+    response.delete_cookie(auth.SESSION_COOKIE_NAME)
+    return response
 
 
 @app.route("/account/refresh", methods=["POST"])

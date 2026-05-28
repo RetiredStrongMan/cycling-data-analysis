@@ -1,0 +1,43 @@
+# Fly.io configuration for cycling-data-analysis.
+# Edit `app` to your chosen Fly app name on first `fly launch`.
+#
+# Deploy: see DEPLOY.md.
+
+app            = "cycling-data-analysis"
+primary_region = "hkg"   # Hong Kong — closest Fly region to China users
+
+[build]
+  # Uses ./Dockerfile (no build args needed)
+
+[env]
+  PYTHONUNBUFFERED       = "1"
+  SESSION_COOKIE_SECURE  = "1"
+  PORT                   = "8080"
+
+[http_service]
+  internal_port        = 8080
+  force_https          = true
+  auto_stop_machines   = "stop"   # idle machines sleep to save free credit
+  auto_start_machines  = true     # cold-start in ~3s on next request
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval     = "30s"
+    method       = "GET"
+    timeout      = "5s"
+    path         = "/healthz"
+
+# Persistent SQLite + per-ride JSON streams live here. The volume survives
+# deploys, restarts, and machine moves between Fly hosts.
+[mounts]
+  source      = "coach_data"
+  destination = "/app/data"
+
+# Resource allocation. 512 MB needed for pandas + scipy at runtime; 256 MB
+# (the free-tier sweet spot) reliably OOMs on the first PDC fit. The extra
+# ~$3/mo for 512 MB is the smallest realistic prod size — drop to 256 MB
+# only if you don't mind crashes under any concurrent load.
+[[vm]]
+  size      = "shared-cpu-1x"
+  memory_mb = 512

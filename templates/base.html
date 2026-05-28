@@ -27,7 +27,7 @@
       </form>
       <span class="muted small">·</span>
       {% if user.profile_image_url %}<img src="{{ user.profile_image_url }}" alt="" class="nav-avatar">{% endif %}
-      <span class="nav-name">{{ user.display_name }}</span>
+      <a href="{{ url_for('account_page') }}" class="nav-name" title="账号设置">{{ user.display_name }}</a>
       <form action="{{ url_for('auth.logout') }}" method="post" style="display:inline">
         <button type="submit" class="link-btn">退出</button>
       </form>
@@ -43,8 +43,19 @@
   {% block content %}{% endblock %}
 </main>
 <footer class="footer">
-  <span>本地分析 · 数据截至上次同步{% if user and user.last_sync_at %} · {{ user.last_sync_at[:16] }}{% endif %}</span>
-  <span class="muted">由 Strava API 提供 · 参考 WKO5 体系指标</span>
+  <span>
+    <a class="footer-link" href="{{ url_for('privacy') }}">隐私政策</a>
+    · <a class="footer-link" href="{{ url_for('terms') }}">服务条款</a>
+    {% if user %}· <a class="footer-link" href="{{ url_for('account_page') }}">账号设置</a>{% endif %}
+    · <a class="footer-link" href="https://github.com/RetiredStrongMan/cycling-data-analysis" target="_blank">源代码</a>
+  </span>
+  <span class="powered-by">
+    <span class="muted">参考 WKO5 体系指标 ·</span>
+    <a class="powered-strava" href="https://www.strava.com" target="_blank" rel="noopener">
+      <span class="powered-strava-text">Powered by</span>
+      <span class="powered-strava-logo">STRAVA</span>
+    </a>
+  </span>
 </footer>
 </body>
 </html>

@@ -74,6 +74,9 @@ def _run_backfill(user_id: int) -> None:
             storage.update_backfill_state(conn, user_id, state="done")
         finally:
             conn.close()
+        # New data landed — drop cached PDC/model so the dashboard recomputes.
+        import cache
+        cache.invalidate(user_id)
         log.info("backfill u=%s complete", user_id)
     except Exception:
         log.exception("backfill u=%s failed", user_id)
@@ -143,6 +146,9 @@ def _run_sync_one(user_id: int, activity_id: int, aspect_type: str) -> None:
             log.info("sync_one u=%s a=%s: %s", user_id, activity_id, aspect_type)
         finally:
             client.conn.close()
+        # A ride was added/updated/deleted — invalidate so every page reflects it.
+        import cache
+        cache.invalidate(user_id)
     except Exception:
         log.exception("sync_one u=%s a=%s failed", user_id, activity_id)
     finally:

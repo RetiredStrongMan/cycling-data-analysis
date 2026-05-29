@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import math
 import os
-from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +22,7 @@ from flask import Flask, abort, g, jsonify, redirect, render_template, request, 
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
+import cache
 import rate_limit
 import storage
 import webhook
@@ -56,23 +56,12 @@ worker.reconcile_on_startup()
 
 PLOTLY_TEMPLATE = "plotly_white"
 
-# Per-user caches. Keyed by user_id; small max so we don't balloon memory if
-# many users are active.
-@lru_cache(maxsize=64)
-def _pdc_cache(user_id: int) -> pd.DataFrame:
-    return wko.power_duration_curve(user_id)
-
-
-@lru_cache(maxsize=64)
-def _pd_model_cache(user_id: int) -> wko.PDModel:
-    return wko.fit_pd_model(_pdc_cache(user_id))
-
-
-def invalidate_caches(user_id: int) -> None:
-    """Drop cached PDC / model when a user gets new rides."""
-    # lru_cache has no per-key eviction; nuke the whole cache.
-    _pdc_cache.cache_clear()
-    _pd_model_cache.cache_clear()
+# Per-user PDC / model caches live in cache.py so the background worker can
+# invalidate them too (see cache.py docstring). Thin local aliases keep the
+# call sites short.
+_pdc_cache = cache.pdc
+_pd_model_cache = cache.pd_model
+invalidate_caches = cache.invalidate
 
 
 def get_rides(user_id: int) -> pd.DataFrame:
@@ -392,9 +381,13 @@ def zones():
 @auth.data_required
 def rides_list():
     user = g.user
+    ftp = _pd_model_cache(user.id).mftp or 200
     rides = get_rides(user.id)
     rides = rides[rides["sport_type"].isin(wko.CYCLING_SPORT_TYPES)].copy()
     rides = rides.sort_values("start_date", ascending=False).reset_index(drop=True)
+    # Canonical NP + TSS per row so the list agrees with each ride's detail page.
+    rides["np_display"] = rides.apply(wko.ride_np, axis=1)
+    rides["tss_display"] = rides.apply(lambda r: wko.ride_tss(r, ftp), axis=1)
     return render_template("rides.html", rides=rides.to_dict(orient="records"))
 
 
@@ -423,8 +416,10 @@ def ride_detail(activity_id: int):
     time_s = streams.get("time", np.arange(watts.size))
     time_min = time_s / 60.0  # x-axis in minutes for readability
 
-    np_w = wko.normalized_power(watts) if watts.size else float("nan")
-    ts = wko.tss(np_w, ftp, info.get("moving_time") or 0)
+    # NP / IF / TSS use the canonical ride_np() so this page agrees with the
+    # PMC rollup. (We still have streams for W'bal + zones below.)
+    np_w = wko.ride_np(info)
+    ts = wko.ride_tss(info, ftp)
     tiz = wko.time_in_zones(watts, ftp) if watts.size else {}
     wbal = wko.wbal_skiba(watts, pd_m.cp_raw, pd_m.w_prime) if watts.size and pd_m.cp_raw else np.array([])
 
@@ -825,14 +820,12 @@ def account_refresh():
 # =====================================================================
 
 def _rides_with_tss(rides: pd.DataFrame, ftp: float) -> pd.DataFrame:
+    # NP + TSS go through wko.ride_np / wko.ride_tss — the same helpers the
+    # ride-detail page uses — so a ride's TSS on its detail page always matches
+    # its contribution to the CTL/ATL/TSB chart.
     df = rides.copy()
-    np_w = df["weighted_average_watts"].fillna(df["average_watts"])
-    df["np_watts"] = np_w
-    df["tss"] = df.apply(
-        lambda r: wko.tss(r["np_watts"], ftp, r["moving_time"])
-        if pd.notna(r["np_watts"]) else float("nan"),
-        axis=1,
-    )
+    df["np_watts"] = df.apply(wko.ride_np, axis=1)
+    df["tss"] = df.apply(lambda r: wko.ride_tss(r, ftp), axis=1)
     return df
 
 

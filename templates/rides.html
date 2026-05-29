@@ -31,7 +31,7 @@
         <td class="num nowrap">{{ (r.moving_time // 3600) }}:{{ '%02d' % ((r.moving_time % 3600) // 60) }}</td>
         <td class="num">{{ r.total_elevation_gain|round|int if r.total_elevation_gain else '' }}</td>
         <td class="num">{{ r.average_watts|round|int if r.average_watts else '—' }}</td>
-        <td class="num">{{ r.weighted_average_watts if r.weighted_average_watts else '—' }}</td>
+        <td class="num">{{ r.np_display|round|int if r.np_display == r.np_display else '—' }}</td>
         <td class="num">{{ r.average_heartrate|round|int if r.average_heartrate else '—' }}</td>
         <td>{% if r.device_watts == 1 %}<span class="tag tag-green">功率计</span>{% else %}<span class="tag tag-gray">估算</span>{% endif %}</td>
       </tr>

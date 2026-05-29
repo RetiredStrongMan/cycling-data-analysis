@@ -672,6 +672,38 @@ def tss(np_watts: float, ftp: float, moving_time_s: float) -> float:
     return (moving_time_s * np_watts * intensity) / (ftp * 3600.0) * 100.0
 
 
+def ride_np(row) -> float:
+    """Canonical Normalized Power for a single ride — the SINGLE source of truth.
+
+    Every module (ride detail, dashboard, training-load PMC) must derive a
+    ride's NP through this function so the same ride never shows a different
+    NP / IF / TSS on different pages.
+
+    Priority:
+      1. Strava's stored NP (`weighted_average_watts`) — computed by Strava with
+         the same 30s-rolling / 4th-power algorithm we'd use, available on the
+         activity summary, and cheap (no stream load).
+      2. `average_watts` — last resort when Strava didn't report NP (e.g. very
+         short or estimated-power rides).
+
+    Deliberately does NOT recompute from streams: doing that on the ride-detail
+    page but using the stored value in the rollup is exactly the inconsistency
+    we're eliminating. `row` may be a dict or a pandas Series — both support .get().
+    """
+    np_w = row.get("weighted_average_watts")
+    if np_w is not None and not pd.isna(np_w) and np_w > 0:
+        return float(np_w)
+    avg = row.get("average_watts")
+    if avg is not None and not pd.isna(avg) and avg > 0:
+        return float(avg)
+    return float("nan")
+
+
+def ride_tss(row, ftp: float) -> float:
+    """Canonical per-ride TSS, built on ride_np() so it matches everywhere."""
+    return tss(ride_np(row), ftp, row.get("moving_time") or 0)
+
+
 def time_in_zones(watts: np.ndarray, ftp: float) -> dict[str, int]:
     """Return seconds spent in each Coggan zone. Caller can divide by total for %."""
     out = {name: 0 for name, _, _, _ in COGGAN_ZONES}
@@ -756,19 +788,16 @@ def performance_management_chart(
 ) -> pd.DataFrame:
     """Daily CTL/ATL/TSB Banister-style EWMAs from a rides DataFrame.
 
-    Requires the rides DF to have `start_date` (datetime) and a `tss` column. If
-    `tss` is missing, computes it from `weighted_average_watts` (NP) or skips.
+    Requires `start_date` (datetime). Uses the `tss` column if present; otherwise
+    derives it via the canonical ride_tss() so it can never disagree with the
+    per-ride TSS shown elsewhere.
     """
     if rides.empty:
         return pd.DataFrame(columns=["date", "tss", "ctl", "atl", "tsb"])
 
     d = rides.copy()
     if "tss" not in d.columns or d["tss"].isna().all():
-        d["np_watts"] = d["weighted_average_watts"].fillna(d["average_watts"])
-        d["tss"] = d.apply(
-            lambda r: tss(r["np_watts"], ftp, r["moving_time"]) if pd.notna(r["np_watts"]) else float("nan"),
-            axis=1,
-        )
+        d["tss"] = d.apply(lambda r: ride_tss(r, ftp), axis=1)
 
     d["date"] = d["start_date"].dt.tz_convert(None).dt.normalize()
     daily = d.groupby("date", as_index=False)["tss"].sum()

@@ -159,7 +159,7 @@ def dashboard():
         "dashboard.html",
         m=pd_m, profile=profile, stats=stats,
         ctl=ctl, atl=atl, tsb=tsb,
-        ftp=int(pd_m.mftp), pmax=int(pd_m.pmax),
+        ftp=round(pd_m.mftp), pmax=round(pd_m.pmax),
         frc=pd_m.frc_kj, tte=pd_m.tte_s, tte_label=fmt_secs(pd_m.tte_s),
         stamina=pd_m.stamina,
     )
@@ -314,7 +314,7 @@ def training_load():
         "ctl": float(latest["ctl"]) if latest is not None else 0,
         "atl": float(latest["atl"]) if latest is not None else 0,
         "tsb": float(latest["tsb"]) if latest is not None else 0,
-        "ftp": int(ftp),
+        "ftp": round(ftp),
     }
     return render_template("training_load.html",
                            plot=figure_html(fig, "pmc-plot"), summary=summary)
@@ -372,7 +372,7 @@ def zones():
 
     return render_template("zones.html",
                            plot=figure_html(fig, "zones-plot"),
-                           zones_meta=zones_meta, ftp=int(ftp),
+                           zones_meta=zones_meta, ftp=round(ftp),
                            total_pct=total_pct, recent_pct=recent_pct,
                            totals=totals, recent=recent)
 
@@ -498,7 +498,7 @@ def ride_detail(activity_id: int):
         plot=figure_html(fig, "ride-plot"),
         zone_plot=figure_html(zfig, "zone-plot"),
         wbal_min_kj=wbal_min_kj, wbal_min_pct=wbal_min_pct,
-        ftp=int(ftp), zones_meta=zones_meta,
+        ftp=round(ftp), zones_meta=zones_meta,
         laps=laps, selected_lap=selected_lap, activity_id=activity_id,
         lap_mode=lap_mode,
     )
